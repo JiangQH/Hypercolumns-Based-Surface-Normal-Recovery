@@ -24,9 +24,12 @@ def random_select(data_dir):
     randomly select image and depth from the nyu dataset
     """
     abs = osp.abspath(data_dir)
-    destination = osp.join(abs, 'selected')
-    if not osp.isdir(destination):
-        os.makedirs(destination)
+    rgb_des_dir = osp.join(abs, 'selected/rgb')
+    depth_des_dir = osp.join(abs, 'selected/depth')
+    if not osp.isdir(rgb_des_dir):
+        os.makedirs(rgb_des_dir)
+    if not osp.isdir(depth_des_dir):
+        os.makedirs(depth_des_dir)
 
     selected_truple = []
     type_dirs = os.listdir(abs)
@@ -39,8 +42,8 @@ def random_select(data_dir):
     for [rgb, depth] in selected_truple:
        rgb_base_name = osp.basename(rgb)
        depth_base_name = osp.basename(depth)
-       des_rgb = osp.join(destination, rgb_base_name)
-       des_depth = osp.join(destination, depth_base_name)
+       des_rgb = osp.join(rgb_des_dir, rgb_base_name)
+       des_depth = osp.join(depth_des_dir, depth_base_name)
        os.rename(rgb, des_rgb)
        os.rename(depth, des_depth)
 
