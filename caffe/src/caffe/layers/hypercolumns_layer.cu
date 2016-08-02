@@ -21,8 +21,8 @@ __global__ void ForwardNormal(const int nthreads,
     const int* sampling_list, Dtype* const top_normal) {
     // forward top_normals
     CUDA_KERNEL_LOOP(index, nthreads) {
-      const int bottom_n = index / sample_pernum; // the bottom n
       const int top_n = index / channels; // the top n
+    const int bottom_n = top_n / sample_pernum; // the bottom n
       const int c = index % channels; // the same channel of top and bottom
       const int bottom_index = sampling_list[top_n]; // the corresponding index of the bottom
       const Dtype* const bottom_slice = bottom_normal + (bottom_n * channels + c) * heights * width;
@@ -32,12 +32,40 @@ __global__ void ForwardNormal(const int nthreads,
 
 template <typename Dtype>
 __global__ void ForwardHypercolumns(const int nthreads,
-    const Dtype* bottom_data, const int num, const int channels,
-    const int heights, const int width, const int sample_pernum,
-    const int* sampling_list, Dtype* const top_data) {
+    const Dtype* bottom_data, const int num, const int bottom_channels,
+    const int bottom_height, const int bottom_width, const int sample_pernum,
+    const int top_channels, const int top_channel_offset, const int* sampling_list,
+    const int original_w, const double scale, Dtype* const top_data) {
     //forward hypercolumns, separate for each bottom
     CUDA_KERNEL_LOOP(index, nthreads) {
-      
+      const int top_n = index / top_channels;
+      const int bottom_n = top_n / sample_pernum;
+      const int bottom_channel = index % top_channels - top_channel_offset; // get the actual channel of the bottom
+      const int sample_index = sampling_list[top_n];
+      const Dtype* const bottom_slice = bottom_data + (bottom_n * bottom_channels + bottom_channel) * bottom_height * bottom_width;
+      // get the corresponding bottom_index, according to the top. using bilinear intercept
+      const int x = sample_index / original_w;
+      const int y = sample_index % original_w;
+      const double r = x / scale + 1.0 / (2.0 * scale) - 0.5;
+      const double c = y / scale + 1.0 / (2.0 * scale) - 0.5;
+      const int u = floor(r);
+      const int v = floor(c);
+      double delta_r = r - u;
+      double delta_c = c - v;
+      if (u < 0)
+        delta_r = 1;
+      if (u + 1 >= bottom_height)
+        delta_r = 0;
+      if (v < 0)
+        delta_c = 1;
+      if (v + 1 >= bottom_width)
+        delta_c = 0;
+      // assign the value
+      const double value = bottom_slice[u * bottom_width + v] * (1 - delta_r) * (1 - delta_c) +
+                           bottom_slice[(u+1) * bottom_width + v] * delta_r * (1 - delta_c) +
+                           bottom_slice[u * bottom_width + v + 1] * delta_c * (1 - delta_r) +
+                           bottom_slice[(u+1) * bottom_width + v + 1] * delta_r * delta_c;
+      top_data[index] = value;
     }
 }
 
@@ -47,29 +75,91 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     // forward step, forward normal first
     Dtype* top_normal = top[1]->mutable_gpu_data();
     const Dtype* bottom_normal = bottom[0]->gpu_data();
-    const int count = top[0]->count();
-    ForwardNormal<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>(
-      count, bottom_normal, N_, K_, H_, W_, sample_num_, &selected_points_[0], top_normal
+    const int count1 = top[1]->count();
+    ForwardNormal<Dtype><<<CAFFE_GET_BLOCKS(count1), CAFFE_CUDA_NUM_THREADS>>>(
+      count1, bottom_normal, N_, K_, H_, W_, sample_num_, &selected_points_[0], top_normal
     );
 
     // then forward the hypercolumns
     Dtype* top_hypercolumns = top[1]->mutable_gpu_data();
     int top_channel_offset = 0;
+    const int count0 = top[0]->count();
     for (int i = 1; i < bottom.size(); ++i) {
       // do it according the corresponding bottom
       const Dtype* bottom_data = bottom[i]->gpu_data();
       const int bottom_channels = bottom[i]->shape(1);
-      const int bottom_width = bottom[i]->shape(2);
-      const int bottom_height = bottom[i]->shape(3);
-
+      const int bottom_width = bottom[i]->shape(3);
+      const int bottom_height = bottom[i]->shape(2);
+      ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(count0), CAFFE_CUDA_NUM_THREADS>>>(
+        count0, bottom_data, N_, bottom_channels, bottom_height, bottom_width, sample_num_,
+        channels_, top_channel_offset, &selected_points_[0], W_, bottom_width * 1.0 / W_, top_hypercolumns
+      );
+      top_channel_offset += bottom_channels;
     }
-
 
 }
 
 
 
+template <typename Dtype>
+__global__ void BackwardHypercolumns(const int nthreads,
+    Dtype* const bottom_data, const int num, const int bottom_channels,
+    const int bottom_height, const int bottom_width, const int sample_pernum,
+    const int top_channels, const int top_channel_offset, const int* sampling_list,
+    const int original_w, const double scale, const Dtype* const top_data) {
+  // backward hypercolumns, seperate for each bottom
+    CUDA_KERNEL_LOOP(index, nthreads) {
+      const int top_n = index / top_channels;
+      const int bottom_n = top_n / sample_pernum;
+      const int bottom_channel = index % top_channels - top_channel_offset;
+      const int sampling_index = sampling_list[top_n];
+      const Dtype* bottom_slice = bottom_data + (bottom_n * bottom_channels + bottom_channel) * bottom_height * bottom_width;
+      // back, get the corresponding bottom index and do the job
+      const int x = sample_index / original_w;
+      const int y = sample_index % original_w;
+      const double r = x / scale + 1.0 / (2.0 * scale) - 0.5;
+      const double c = y / scale + 1.0 / (2.0 * scale) - 0.5;
+      const int u = floor(r);
+      const int v = floor(c);
+      double delta_r = r - u;
+      double delta_c = c - v;
+      if (u < 0)
+        delta_r = 1;
+      if (u + 1 >= bottom_height)
+        delta_r = 0;
+      if (v < 0)
+        delta_c = 1;
+      if (v + 1 >= bottom_width)
+        delta_c = 0;
+      bottom_slice[u * bottom_width + v] += top_data[index] * (1 - delta_r) * (1 - delta_c);
+      bottom_slice[(u+1) * bottom_width + v] += top_data[index] * delta_r * (1 - delta_c);
+      bottom_slice[u * bottom_width + v + 1] += top_data[index] * delta_c * (1 - delta_r);
+      bottom_slice[(u+1) * bottom_width + v + 1] += top_data[index] * delta_r * delta_c;
+    }
+}
 
+
+
+template <typename Dtype>
+void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
+      const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
+   // backward step, back the diff in top[0] to the bottom, except bottom[0]
+    const Dtype* top_diff = top[0]->gpu_diff();
+    int top_channel_offset = 0;
+    const int count = top[0]->count();
+    for (int i = 1; i < bottom.size(); ++i) {
+      Dtype* bottom_diff = bottom[i]->mutable_gpu_diff();
+      const int bottom_channels = bottom[i]->shape(1);
+      const int bottom_width = bottom[i]->shape(3);
+      const int bottom_height = bottom[i]->shape(2);
+      BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>(
+        count, bottom_diff, N_, bottom_channels, bottom_height, bottom_width, sample_num_,
+        channels_, top_channel_offset, &sampling_list[0], W_, bottom_width * 1.0 / W_, top_diff
+      );
+      top_channel_offset += bottom_channels;
+    }
+
+}
 
 
 
