@@ -113,10 +113,10 @@ __global__ void BackwardHypercolumns(const int nthreads,
       const int bottom_n = top_n / sample_pernum;
       const int bottom_channel = index % top_channels - top_channel_offset;
       const int sampling_index = sampling_list[top_n];
-      const Dtype* bottom_slice = bottom_data + (bottom_n * bottom_channels + bottom_channel) * bottom_height * bottom_width;
+      Dtype* bottom_slice = bottom_data + (bottom_n * bottom_channels + bottom_channel) * bottom_height * bottom_width;
       // back, get the corresponding bottom index and do the job
-      const int x = sample_index / original_w;
-      const int y = sample_index % original_w;
+      const int x = sampling_index / original_w;
+      const int y = sampling_index % original_w;
       const double r = x / scale + 1.0 / (2.0 * scale) - 0.5;
       const double c = y / scale + 1.0 / (2.0 * scale) - 0.5;
       const int u = floor(r);
@@ -154,7 +154,7 @@ void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
       const int bottom_height = bottom[i]->shape(2);
       BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>(
         count, bottom_diff, N_, bottom_channels, bottom_height, bottom_width, sample_num_,
-        channels_, top_channel_offset, &sampling_list[0], W_, bottom_width * 1.0 / W_, top_diff
+        channels_, top_channel_offset, &selected_points_[0], W_, bottom_width * 1.0 / W_, top_diff
       );
       top_channel_offset += bottom_channels;
     }
