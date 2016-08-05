@@ -24,8 +24,8 @@ void HyperColumnsLayer<Dtype>::get_map_point(std::map<int, double>& result,
      * value
      * */
    double scale = H_ / original_map_size[0];
-   int x = out_index / W_; 
-   int y = out_index % W_;
+   int x = out_index / H_;
+   int y = out_index % H_;
    int h = original_map_size[0];
    int w = original_map_size[1];
    double r = x / scale + 1.0 / (2.0 * scale) - 0.5;
@@ -155,15 +155,6 @@ void HyperColumnsLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     top_shape.push_back(sample_num_ * N_);
     top_shape.push_back(3);
     top[1]->Reshape(top_shape);
-
-    // get the sampling point, change the corresponding forward_cpu later(todo)
-    vector<int> sampling_list;
-    for (int n = 0; n < N_; ++n) {
-      generate_list(sampling_list, bottom[0], n);
-      selected_points_.insert(selected_points_.end(),
-                              sampling_list.begin(), sampling_list.end());
-    }
-
 }
 
 template <typename Dtype>

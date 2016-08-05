@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from tools import SimpleTransformer as ST
 import numpy as np
 modeldir = '../model'
-caffe.set_mode_cpu()
+caffe.set_mode_gpu()
 solver = caffe.SGDSolver(osp.join(modeldir, 'solver.prototxt'))
 solver.net.copy_from(osp.join(modeldir, 'VGG_16_full_conv.caffemodel'))
 #solver.test_nets.copy_from(osp.join(modeldir, 'tune_iter_250.caffemodel'))
