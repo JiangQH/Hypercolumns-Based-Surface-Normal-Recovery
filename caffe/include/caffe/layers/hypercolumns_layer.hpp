@@ -51,7 +51,7 @@ protected:
     bool is_train_;
     int N_, K_, H_, W_; // the N, K, H, W of normal map
     int sample_num_; // sample_num per batch
-    int channels_; // the channels_ of the hypercolumns
+    int total_channels_; // the channels_ of the hypercolumns
 
 private:
     void get_map_point(std::map<int, double>& result, int out_index,

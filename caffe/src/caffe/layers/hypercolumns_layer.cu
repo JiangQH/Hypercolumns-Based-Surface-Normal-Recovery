@@ -38,13 +38,14 @@ __global__ void ForwardHypercolumns(const int nthreads,
     const int original_h, Dtype* const top_data) {
     //forward hypercolumns, separate for each bottom
     CUDA_KERNEL_LOOP(index, nthreads) {
-      const int top_n = index / top_channels;
+      const int top_n = index / bottom_channels;
       const int bottom_n = top_n / sample_pernum;
-      const int bottom_channel = index % top_channels - top_channel_offset; // get the actual channel of the bottom
+      const int bottom_channel = index % bottom_channels; // get the actual channel of the bottom
+      const int top_index = bottom_channel + top_n * top_channels + top_channel_offset;
       const int sample_index = sampling_list[top_n];
       const Dtype* const bottom_slice = bottom_data + (bottom_n * bottom_channels + bottom_channel) * bottom_height * bottom_width;
       // get the corresponding bottom_index, according to the top. using bilinear intercept
-      const double scale = original_h * 1.0 / bottom_width;
+      const double scale = original_h * 1.0 / bottom_height;
       const int x = sample_index / original_h;
       const int y = sample_index % original_h;
       const double r = x / scale + 1.0 / (2.0 * scale) - 0.5;
@@ -71,7 +72,7 @@ __global__ void ForwardHypercolumns(const int nthreads,
         value += bottom_slice[u * bottom_width + v + 1] * delta_c * (1 - delta_r);
       if (delta_r * delta_c != 0)
         value += bottom_slice[(u+1) * bottom_width + v + 1] * delta_r * delta_c;
-      top_data[index] = value;
+      top_data[top_index] = value;
     }
 }
 
@@ -88,29 +89,36 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     }
 
     // forward step, forward normal first
+    int* cuda_samplelist;
+    cudaMalloc(&cuda_samplelist, selected_points_.size() * sizeof(int));
+    cudaMemcpy(cuda_samplelist, &selected_points_[0], selected_points_.size()*sizeof(int), cudaMemcpyHostToDevice);
+
     Dtype* top_normal = top[1]->mutable_gpu_data();
     const Dtype* bottom_normal = bottom[0]->gpu_data();
     const int count1 = top[1]->count();
     ForwardNormal<Dtype><<<CAFFE_GET_BLOCKS(count1), CAFFE_CUDA_NUM_THREADS>>>(
-      count1, bottom_normal, N_, K_, H_, W_, sample_num_, &selected_points_[0], top_normal
+      count1, bottom_normal, N_, K_, H_, W_, sample_num_, cuda_samplelist, top_normal
     );
 
     // then forward the hypercolumns
     Dtype* top_hypercolumns = top[0]->mutable_gpu_data();
     int top_channel_offset = 0;
-    const int count0 = top[0]->count();
+   // const int count0 = top[0]->count();
+    //const int top_total_channels = top[0]->shape(1);
     for (int i = 1; i < bottom.size(); ++i) {
       // do it according the corresponding bottom
       const Dtype* bottom_data = bottom[i]->gpu_data();
       const int bottom_channels = bottom[i]->shape(1);
       const int bottom_height = bottom[i]->shape(2);
       const int bottom_width = bottom[i]->shape(3);
-      ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(count0), CAFFE_CUDA_NUM_THREADS>>>(
-        count0, bottom_data, N_, bottom_channels, bottom_height, bottom_width, sample_num_,
-        channels_, top_channel_offset, &selected_points_[0], H_, top_hypercolumns
+      const int nthreads = N_ * sample_num_ * bottom_channels;
+      ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
+        nthreads, bottom_data, N_, bottom_channels, bottom_height, bottom_width, sample_num_,
+        total_channels_, top_channel_offset, cuda_samplelist, H_, top_hypercolumns
       );
       top_channel_offset += bottom_channels;
     }
+    cudaFree(cuda_samplelist);
     CUDA_POST_KERNEL_CHECK;
 }
 
@@ -124,13 +132,14 @@ __global__ void BackwardHypercolumns(const int nthreads,
     const int original_h, const Dtype* const top_data) {
   // backward hypercolumns, seperate for each bottom
     CUDA_KERNEL_LOOP(index, nthreads) {
-      const int top_n = index / top_channels;
+      const int top_n = index / bottom_channels;
       const int bottom_n = top_n / sample_pernum;
-      const int bottom_channel = index % top_channels - top_channel_offset;
+      const int bottom_channel = index % bottom_channels;
+      const int top_index = bottom_channel + top_n * top_channels + top_channel_offset;
       const int sampling_index = sampling_list[top_n];
       Dtype* bottom_slice = bottom_data + (bottom_n * bottom_channels + bottom_channel) * bottom_height * bottom_width;
       // back, get the corresponding bottom index and do the job
-      const double scale = original_h * 1.0 / bottom_width;
+      const double scale = original_h * 1.0 / bottom_height;
       const int x = sampling_index / original_h;
       const int y = sampling_index % original_h;
       const double r = x / scale + 1.0 / (2.0 * scale) - 0.5;
@@ -149,13 +158,13 @@ __global__ void BackwardHypercolumns(const int nthreads,
         delta_c = 0;
       // notice the boundary check
       if ((1 - delta_r) * (1 - delta_c) != 0)
-        bottom_slice[u * bottom_width + v] += top_data[index] * (1 - delta_r) * (1 - delta_c);
+        bottom_slice[u * bottom_width + v] += top_data[top_index] * (1 - delta_r) * (1 - delta_c);
       if (delta_r * (1 - delta_c) != 0)
-        bottom_slice[(u+1) * bottom_width + v] += top_data[index] * delta_r * (1 - delta_c);
+        bottom_slice[(u+1) * bottom_width + v] += top_data[top_index] * delta_r * (1 - delta_c);
       if (delta_c * (1 - delta_r) != 0)
-        bottom_slice[u * bottom_width + v + 1] += top_data[index] * delta_c * (1 - delta_r);
+        bottom_slice[u * bottom_width + v + 1] += top_data[top_index] * delta_c * (1 - delta_r);
       if (delta_r * delta_c != 0)
-        bottom_slice[(u+1) * bottom_width + v + 1] += top_data[index] * delta_r * delta_c;
+        bottom_slice[(u+1) * bottom_width + v + 1] += top_data[top_index] * delta_r * delta_c;
     }
 }
 
@@ -165,20 +174,27 @@ template <typename Dtype>
 void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
       const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
    // backward step, back the diff in top[0] to the bottom, except bottom[0]
+    int* cuda_samplelist;
+    cudaMalloc(&cuda_samplelist, selected_points_.size() * sizeof(int));
+    cudaMemcpy(cuda_samplelist, &selected_points_[0], selected_points_.size()*sizeof(int), cudaMemcpyHostToDevice);
+
     const Dtype* top_diff = top[0]->gpu_diff();
     int top_channel_offset = 0;
-    const int count = top[0]->count();
+    //const int count = top[0]->count();
     for (int i = 1; i < bottom.size(); ++i) {
       Dtype* bottom_diff = bottom[i]->mutable_gpu_diff();
       const int bottom_channels = bottom[i]->shape(1);
       const int bottom_height = bottom[i]->shape(2);
       const int bottom_width = bottom[i]->shape(3);
-      BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(count), CAFFE_CUDA_NUM_THREADS>>>(
-        count, bottom_diff, N_, bottom_channels, bottom_height, bottom_width, sample_num_,
-        channels_, top_channel_offset, &selected_points_[0], H_, top_diff
+      const int nthreads = N_ * sample_num_ * bottom_channels;
+      BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
+        nthreads, bottom_diff, N_, bottom_channels, bottom_height, bottom_width, sample_num_,
+        total_channels_, top_channel_offset, cuda_samplelist, H_, top_diff
       );
       top_channel_offset += bottom_channels;
     }
+
+    cudaFree(cuda_samplelist);
     CUDA_POST_KERNEL_CHECK;
 }
 

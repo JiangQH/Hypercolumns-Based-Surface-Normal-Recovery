@@ -134,7 +134,7 @@ void HyperColumnsLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     for (int i = 1; i < bottom.size(); ++i) {
         channel += bottom[i]->shape(1);
     }
-    channels_ = channel;
+    total_channels_ = channel;
 }
 
 template <typename Dtype>
@@ -146,7 +146,7 @@ void HyperColumnsLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     vector<int> top_shape;
     // top[0]
     top_shape.push_back(sample_num_ * N_);
-    top_shape.push_back(channels_);
+    top_shape.push_back(total_channels_);
     top_shape.push_back(1);
     top_shape.push_back(1);
     top[0]->Reshape(top_shape);
