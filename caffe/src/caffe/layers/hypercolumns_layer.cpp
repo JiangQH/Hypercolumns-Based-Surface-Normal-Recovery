@@ -95,6 +95,7 @@ template <typename Dtype>
 bool HyperColumnsLayer<Dtype>::is_valid(const Blob<Dtype>* feature_map, 
         int number, int index) {
     // to indicate whether the sampled point is valid in normal feature_map
+
     const Dtype* feature_data = feature_map->cpu_data();
     const int offset1 = feature_map->offset(number, 0);
     const int offset2 = feature_map->offset(number, 1);
@@ -265,9 +266,9 @@ void HyperColumnsLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     // LOG(INFO) << "backward done ";
 }
 
-//#ifdef CPU_ONLY
-//    STUB_GPU(HyperColumnsLayer);
-//#endif
+#ifdef CPU_ONLY
+    STUB_GPU(HyperColumnsLayer);
+#endif
 
 INSTANTIATE_CLASS(HyperColumnsLayer);
 REGISTER_LAYER_CLASS(HyperColumns);
