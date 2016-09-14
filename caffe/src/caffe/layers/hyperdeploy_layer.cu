@@ -3,7 +3,7 @@
 #include <cmath>
 #include <algorithm>
 
-#include "caffe/layers/hyperdeploy.hpp"
+#include "caffe/layers/hyperdeploy_layer.hpp"
 #include "caffe/util/math_functions.hpp"
 
 namespace caffe {
@@ -102,5 +102,5 @@ void HyperDeployLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     // do nothing
 }
 
-
+INSTANTIATE_LAYER_GPU_FUNCS(HyperDeployLayer);
 }//namespace caffe

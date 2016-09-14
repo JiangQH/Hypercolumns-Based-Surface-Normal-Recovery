@@ -162,8 +162,11 @@ void HyperDeployLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
                                             const vector<Blob<Dtype>*>& bottom) {
     // do nothing
 }
-
-
+#ifdef CPU_ONLY
+    STUB_GPU(HyperDeployLayer);
+#endif
+INSTANTIATE_CLASS(HyperDeployLayer);
+REGISTER_LAYER_CLASS(HyperDeploy);
 
 }//namespace caffe
 
