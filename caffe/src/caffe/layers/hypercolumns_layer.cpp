@@ -103,6 +103,9 @@ bool HyperColumnsLayer<Dtype>::is_valid(const Blob<Dtype>* feature_map,
     const double value1 = feature_data[offset1+index];
     const double value2 = feature_data[offset2+index];
     const double value3 = feature_data[offset3+index];
+    // check nan sampled number
+    if (value1 != value1 || value2 != value2 || value3 != value3)
+        return false;
     return !(value1 == value2 && value2 == value3);
 }
 

@@ -8,7 +8,7 @@ class SimpleTransformer:
     images for caffe.
     """
 
-    def __init__(self, mean=[104, 117, 123]):
+    def __init__(self, mean=[0, 0, 0]):
         self.mean = np.array(mean, dtype=np.float32)
         self.scale = 1.0
 
@@ -32,7 +32,7 @@ class SimpleTransformer:
 
         im = np.float32(im)
         im = im[:, :, ::-1]  # change to BGR
-        im -= self.mean
+       # im -= self.mean
         im *= self.scale
         im = im.transpose((2, 0, 1))
 
@@ -119,3 +119,6 @@ class CaffeSolver:
             if not(type(value) is str):
                 raise TypeError('All solver parameters must be strings')
             f.write('%s: %s\n' % (key, value))
+
+
+
