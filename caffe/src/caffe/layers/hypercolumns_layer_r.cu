@@ -77,7 +77,7 @@ __global__ void ForwardHypercolumns(const int nthreads,
             delta_h = temph - fh;
             int offset1 = slice + fh * width_[b] + fw;
             int offset2 = offset1 + width_[b];
-            top_data[top_index++] = bottom_data[offset1] * (1-delta_h) + bottom_data[offset2] * delta_h;
+            top_data[index] = bottom_data[offset1] * (1-delta_h) + bottom_data[offset2] * delta_h;
         }
         else {
             delta_w = tempw - fw;
@@ -86,7 +86,7 @@ __global__ void ForwardHypercolumns(const int nthreads,
             int offset2 = offset1 + 1;
             int offset3 = offset1 + width_[b];
             int offset4 = offset3 + 1;
-            top_data[top_index++] =
+            top_data[index] =
                         (bottom_data[offset1]*(1-delta_h) + bottom_data[offset3]*(delta_h)) * (1-delta_w) +
                         (bottom_data[offset2]*(1-delta_h) + bottom_data[offset4]*(delta_h)) * delta_w;
         }
@@ -100,7 +100,6 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     if (!cuda_instanced_) {
         instance_cuda_data();
     }
-
     // generate the sampling list and copy it
     generate_list(bottom[0], false);
     CUDA_CHECK(cudaMemcpy(cuda_samplelist_, &selected_points_[0], selected_points_.size()* sizeof(int)));
@@ -127,14 +126,74 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     );
 }
 
+
+
+
 template <typename Dtype>
 __global__ void BackwardHypercolumns(const int nthreads,
      Dtype** const bottom_diffs, const int* bottom_channels,
-     const int* bottom_heights, const int* bottom_widths, const int sample_pernum,
+     const int* bottom_heights, const int* bottom_widths, const double* bottom_maplists, const int sample_pernum,
      const int top_channels,  const int* sampling_list,
      const int W, const Dtype* const top_diff) {
   // backward hypercolumns, seperate for each bottom
     CUDA_KERNEL_LOOP(index, nthreads) {
+        const int top_n = index / top_channels; // find the corresponding index in the sampling list
+        const int bottom_n = top_n / sample_pernum;
+        int bottom_channel = index % top_channels;
+        int bottom_id = 0;
+        while(bottom_id<bottom_count) {
+            if(bottom_channel - bottom_channels[bottom_id] < 0) {
+                break;
+            }
+            bottom_channel -= bottom_channels[bottom_id];
+            ++bottom_id;
+        }
+        // now have the bottom_id, bottom_num, bottom_channel. needs to get the corresponding bottom feature map point
+        const int sampled_index = sampling_list[top_n];
+        const int startid = (sampled_index * bottom_count + bottom_id) * 6; // hard coding here
+        double tempw = bottom_maplists[startid];
+        double temph = bottom_maplists[startid+1];
+        int fw = bottom_maplists[startid+2];
+        int fh = bottom_maplists[startid+3];
+        int cw = bottom_maplists[startid+4];
+        int ch = bottom_maplists[startid+5];
+        // assign values
+        int padding = bottom_heights[bottom_id] * bottom_widths[bottom_id];
+        int slice = (bottom_n * bottom_channels[bottom_id] + bottom_channel)* padding;
+        Dtype* bottom_diff = bottom_diffs[bottom_id];
+        if ((fw == cw) && (fh == ch)) {
+            int offset = slice + fh * bottom_widths[bottom_id] + fw;
+            bottom_diff[offset] += top_diff[index];
+        }
+        else if (fh == ch) {
+            delta_w = tempw - fw;
+            int offset1 = slice + fh * width_[b] + fw;
+            int offset2 = offset1 + 1;
+            bottom_diff[offset1] += top_diff[index] * (1-delta_w);
+            bottom_diff[offset2] += top_diff[index] * delta_w;
+        }
+        else if (fw == cw) {
+            delta_h = temph - fh;
+            int offset1 = slice + fh * width_[b] + fw;
+            int offset2 = offset1 + width_[b];
+            bottom_diff[offset1] += top_diff[index] * (1 - delta_h);
+            bottom_diff[offset2] += top_diff[index] * delta_h;
+        }
+        else {
+            delta_w = tempw - fw;
+            delta_h = temph - fh;
+            int offset1 = slice + fh * width_[b] + fw;
+            int offset2 = offset1 + 1;
+            int offset3 = offset1 + width_[b];
+            int offset4 = offset3 + 1;
+            top_data[top_index++] =
+                    (bottom_data[offset1]*(1-delta_h) + bottom_data[offset3]*(delta_h)) * (1-delta_w) +
+                    (bottom_data[offset2]*(1-delta_h) + bottom_data[offset4]*(delta_h)) * delta_w;
+            bottom_diff[offset1] += top_diff[index] * (1-delta_w) * (1-delta_h);
+            bottom_diff[offset2] += top_diff[index] * (1-delta_h) * delta_w;
+            bottom_diff[offset3] += top_diff[index] * delta_h * (1-delta_w);
+            bottom_diff[offset4] += top_diff[index] * delta_h * delta_w;
+        }
 
     }
 }
