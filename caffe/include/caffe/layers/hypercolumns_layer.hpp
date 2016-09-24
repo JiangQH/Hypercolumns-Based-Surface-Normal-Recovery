@@ -20,7 +20,7 @@ template <typename Dtype>
 class HyperColumnsLayer: public Layer<Dtype> {
 public:
     explicit HyperColumnsLayer(const LayerParameter& param) :
-        Layer<Dtype>(param) {}
+        Layer<Dtype>(param) { cuda_instanced_ = false;}
 
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
                            const vector<Blob<Dtype>*>& top);
@@ -52,15 +52,32 @@ protected:
     int N_, K_, H_, W_; // the N, K, H, W of normal map
     int sample_num_; // sample_num per batch
     int total_channels_; // the channels_ of the hypercolumns
+    vector<int> width_, height_;
+    vector<int> scalef_;
+    vector<Dtype> padf_;
+    vector<int> channels_; // store the channels for every bottom
+
+
+    // for the use of gpu, I declare some elements here to avoid the multi-declare and save time
+    int* cuda_samplelist_;
+    int* cuda_widths_, cuda_heights_, cuda_channels_;
+    bool cuda_instanced_;
 
 private:
-    void get_map_point(std::map<int, double>& result, int out_index,
-                       const vector<int>& original_size); // generate the correponding map point    
-    void generate_list(vector<int>& result, const Blob<Dtype>* feature_map, int batch); // generate random list
+
+
+
+    void generate_bilinear_map(); // this function is used to do the map generation at the first time, to avoid multiple
+                                  // computation in the gpu version
+
+    void generate_list(const Blob<Dtype>* feature_map, bool is_gpu = true); // generate random list
     
     double get_true_normal(const double normal_map);// get the true normal value according to the  normal_map point
 
     bool is_valid(const Blob<Dtype>* feature_map, int batch, int index);
+
+    void instance_cuda_data();
+    void uninstance_cuda_data();
 };// end of HyperColumnsLayer
 }// namespace caffe
 #endif // CAFFE_HYPERCOLUMNS_LAYER_HPP_

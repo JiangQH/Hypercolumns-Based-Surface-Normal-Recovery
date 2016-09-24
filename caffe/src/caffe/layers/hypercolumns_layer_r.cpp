@@ -100,7 +100,8 @@ void HyperColumnsLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     padf_.push_back(0.0);
     int channel = 0;
     for (int i = 1; i < bottom.size(); ++i) {
-        channel += bottom[i]->shape(1);
+        channels_.push_back(bottom[i]->channels());
+        channel += channels_[i-1];
         width_.push_back(bottom[i]->shape(3);
         height_.push_back(bottom[i]->shape(2));
         const int scale = H_ / bottom[i]->shape(2);
@@ -142,7 +143,7 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     int fw, fh, cw, ch; // the floor and ceil elements
     Dtype tempw, temph; // the raw divide
     Dtype delta_w, delta_h;
-    int top_hyper_index = 0;
+    int top_index = 0;
     int top_n_index = 0;
     for (int i = 0; i < sample_num_*N_; ++i) {
         // for every top sampling feature point
@@ -153,14 +154,16 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
 
         // find the corresponding locations for every bottom
         for (int b = 1; b < bottom.size(); ++b) {
-            const Dtype* bottom_data = bottom[b]->cpu_data;
-            int slice = n * bottom[b]->channels() * height_[b] * width_[b];
+            const Dtype* bottom_data = bottom[b]->cpu_data();
+            const int padding = height_[b] * width_[b];
+            const int channels = bottom[b]->channels();
+            int slice = n * channels * padding;
             tempw = (w - padf_[b]) / scalef_[b]; // the computed 
             temph = (h - padf_[b]) / scalef_[b];
-            fw = floor(tempw);
-            fh = floor(temph);
-            cw = ceil(tempw);
-            ch = ceil(temph);
+            fw = static_cast<int>(floor(tempw));
+            fh = static_cast<int>(floor(temph));
+            cw = static_cast<int>(ceil(tempw));
+            ch = static_cast<int>(ceil(temph));
             // boundary check
             fw = fw > 0 ? fw : 0;
             cw = cw > 0 ? cw : 0;
@@ -170,32 +173,32 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
             ch = ch < height_[b] ? ch : fh;
             // assign values
             if ((fw == cw) && (fh == ch)) {
-                offset = slice +  fh * width_[b] + fw;
-                for (int c = 0; c < bottom[b]->channels(); ++c) {
+                int offset = slice +  fh * width_[b] + fw;
+                for (int c = 0; c < channels; ++c) {
                     top_hypercolumns[top_index++] = bottom_data[offset];
-                    offset += width_[b] * height_[b];
+                    offset += padding;
                 }
             }
             else if (fh == ch) {
                 delta_w = tempw - fw;
                 int offset1 = slice + fh * width_[b] + fw;
                 int offset2 = offset1 + 1;
-                for (int c = 0; c < bottom[b]->channels(); ++c) {
+                for (int c = 0; c < channels; ++c) {
                     top_hypercolumns[top_index++] = 
                         bottom_data[offset1] * (1-delta_w) + bottom_data[offset2] * delta_w;
-                    offset1 += width_[b] * height_[b];
-                    offset2 += width_[b] * height_[b];
+                    offset1 += padding;
+                    offset2 += padding;
                 }
             }
             else if (fw == cw) {
                 delta_h = temph - fh;
                 int offset1 = slice + fh * width_[b] + fw;
                 int offset2 = offset1 + width_[b];
-                for (int c = 0; c < bottom[b]->channels(); ++c) {
+                for (int c = 0; c < channels; ++c) {
                     top_hypercolumns[top_index++] = 
                         bottom_data[offset1] * (1-delta_h) + bottom_data[offset2] * delta_h;
-                    offset1 += width_[b] * height_[b];
-                    offset2 += width_[b] * height_[b];
+                    offset1 += padding;
+                    offset2 += padding;
                 }
             }
             else {
@@ -205,14 +208,14 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
                 int offset2 = offset1 + 1;
                 int offset3 = offset1 + width_[b];
                 int offset4 = offset3 + 1;
-                for (int c = 0; c < bottom[b]->channels(); ++c) {
+                for (int c = 0; c < channels; ++c) {
                     top_hypercolumns[top_index++] = 
                         (bottom_data[offset1]*(1-delta_h) + bottom_data[offset3]*(delta_h)) * (1-delta_w) + 
                         (bottom_data[offset2]*(1-delta_h) + bottom_data[offset4]*(delta_h)) * delta_w;
-                    offset1 += width_[b] * height_[b];
-                    offset2 += width_[b] * height_[b];
-                    offset3 += width_[b] * height_[b];
-                    offset4 += width_[b] * height_[b];
+                    offset1 += padding;
+                    offset2 += padding;
+                    offset3 += padding;
+                    offset4 += padding;
                 }
             }
         }
@@ -235,28 +238,86 @@ void HyperColumnsLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     for (int i = 1; i < bottom.size(); ++i) {
         caffe_set(bottom[i]->count(), Dtype(0), bottom[i]->mutable_cpu_diff());
     }
-    
     // do backward
-    for (int index = 0; index < selected_points_.size(); ++index) {
-        const int selected_index = selected_points_[index];
-        const int n = index / sample_num_;
-        int hyper_channel = 0;
-        for (int bottom_id = 1; bottom_id < bottom.size(); ++bottom_id) {
-            Dtype* bottom_diff = bottom[bottom_id]->mutable_cpu_diff();
-            const int channel = bottom[bottom_id]->shape(1);
-            for (int c = 0; c < channel; ++c) {
-                const int top_index = top[0]->offset(index, hyper_channel);
-                for (std::map<int, double>::iterator iter = weights.begin();
-                     iter != weights.end(); ++iter) {
-                    const int bottom_index = bottom[bottom_id]->offset(n, c) + iter->first;
-                    bottom_diff[bottom_index] += top_diff[top_index] * iter->second;
+    int h, w, n, index;
+    int fw, fh, cw, ch;
+    Dtype tempw, temph;
+    Dtype delta_w, delta_h;
+    int top_index = 0;
+    for (int i = 0; i < N_ * sample_num_; ++i) {
+        index = selected_points_[i];
+        n = i % sample_num_;
+        h = index / W_;
+        w = index % W_;
+        // find the corresponding feature point in the bottom
+        for (int b = 1; b < bottom.size(); ++b) {
+            Dtype* bottom_diff = bottom[b]->mutable_cpu_diff();
+            const int padding = width_[b] * height_[b];
+            const int channels = bottom[b]->channels();
+            int slice = n * channels * padding;
+            tempw = (w - padf_[b]) / scalef_[b];
+            temph = (h - padf_[b]) / scalef_[b];
+            fw = static_cast<int>(floor(tempw));
+            fh = static_cast<int>(floor(temph));
+            cw = static_cast<int>(ceil(tempw));
+            ch = static_cast<int>(ceil(temph));
+            // boundary check
+            fw = fw > 0 ? fw : 0;
+            cw = cw > 0 ? cw : 0;
+            fh = fh > 0 ? fh : 0;
+            ch = ch > 0 ? ch : 0;
+            cw = cw < width_[b] ? cw : fw;
+            ch = ch < height_[b] ? ch : fh;
+            // assign values
+            if ((fw==cw) && (fh==ch)) {
+                int offset = slice + fh * width_[b] + fw;
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset] += top_diff[top_index++];
+                    offset += padding;
                 }
-                ++hyper_channel;
+            }
+            else if (fh == ch) {
+                delta_w = tempw - fw;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + 1;
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset1] += top_diff[top_index] * (1-delta_w);
+                    bottom_diff[offset2] += top_diff[top_index++] * delta_w;
+                    offset1 += padding;
+                    offset2 += padding;
+                }
+            }
+            else if (fw == cw) {
+                delta_h = temph - fh;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + width_[b];
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset1] += top_diff[top_index] * (1 - delta_h);
+                    bottom_diff[offset2] += top_diff[top_index++] * delta_h;
+                    offset1 += padding;
+                    offset2 += padding;
+                }
+            }
+            else {
+                delta_w = tempw - fw;
+                delta_h = temph - fh;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + 1;
+                int offset3 = offset1 + width_[b];
+                int offset4 = offset3 + 1;
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset1] += top_diff[top_index] * (1-delta_w) * (1-delta_h);
+                    bottom_diff[offset2] += top_diff[top_index] * (1-delta_h) * delta_w;
+                    bottom_diff[offset3] += top_diff[top_index] * delta_h * (1-delta_w);
+                    bottom_diff[offset4] += top_diff[top_index++] * delta_h * delta_w;
+                    offset1 += padding;
+                    offset2 += padding;
+                    offset3 += padding;
+                    offset4 += padding;
+                }
             }
         }
     }
-    selected_points_.clear();
-    // LOG(INFO) << "backward done ";
 }
 
 #ifdef CPU_ONLY
