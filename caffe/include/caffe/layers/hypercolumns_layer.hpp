@@ -61,6 +61,8 @@ protected:
     // for the use of gpu, I declare some elements here to avoid the multi-declare and save time
     int* cuda_samplelist_;
     int* cuda_widths_, cuda_heights_, cuda_channels_;
+    double* cuda_map_lists_; // store the (tempw, temph, fh, fw, ch, cw) for every index in the sample map. so the size
+                            // should be 6 * bottom_count * total_index
     bool cuda_instanced_;
 
 private:

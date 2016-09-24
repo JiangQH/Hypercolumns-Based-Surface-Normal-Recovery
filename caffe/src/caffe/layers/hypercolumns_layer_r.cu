@@ -127,17 +127,59 @@ void HyperColumnsLayer<Dtype>::instance_cuda_data() {
     CUDA_CHECK(cudaMemcpy(cuda_heights_, &height_[0], height_.size()* sizeof(int)));
     CUDA_CHECK(cudaMalloc(&cuda_channels_, channels_.size() * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(cuda_channels_, &channels_[0], channels_.size()* sizeof(int)));
+    generate_bilinear_map(); // generate the mapping list
     CUDA_POST_KERNEL_CHECK;
     cuda_instanced_ = true;
 }
 
-HyperColumnsLayer()::~HyperColumnsLayer() {
+template <typename Dtype>
+HyperColumnsLayer<Dtype>::~HyperColumnsLayer() {
     CUDA_CHECK(cudaFree(cuda_samplelist_));
     CUDA_CHECK(cudaFree(cuda_widths_));
     CUDA_CHECK(cudaFree(cuda_heights_));
     CUDA_CHECK(cudaFree(cuda_channels_));
+    CUDA_CHECK(cudaFree(cuda_map_lists_));
     CUDA_POST_KERNEL_CHECK;
     cuda_instanced_ = false;
+}
+
+template <typename Dtype>
+void HyperColumnsLayer<Dtype>::generate_bilinear_map() {
+// generate the bilinear map all in one at begin
+    const int total_index = H_ * W_;
+    const int bottom_count = width_.size() - 1;
+    CUDA_CHECK(cudaMalloc(&cuda_map_lists_, 6 * bottom_count * total_index * sizeof(double)));
+    // get the value for every sample index
+    int h, w;
+    double fw, fh, cw, ch;
+    double tempw, temph;
+    int count = 0;
+    for (int index = 0; index < total_index; ++index) {
+        h = index / W_;
+        w = index % W_;
+        for (int b = 1; b < width_.size(); ++b) {
+            tempw = (w - padf_[b]) / scalef_[b];
+            temph = (h - padf_[b]) / scaled_[b];
+            fw = static_cast<int>(floor(tempw));
+            fh = static_cast<int>(floor(temph));
+            cw = static_cast<int>(ceil(tempw));
+            ch = static_cast<int>(ceil(temph));
+            // boundary check
+            fw = fw > 0 ? fw : 0;
+            cw = cw > 0 ? cw : 0;
+            fh = fh > 0 ? fh : 0;
+            ch = ch > 0 ? ch : 0;
+            cw = cw < width_[b] ? cw : fw;
+            ch = ch < height_[b] ? ch : fh;
+            cuda_map_lists_[count++] = tempw;
+            cuda_map_lists_[count++] = temph;
+            cuda_map_lists_[count++] = fw;
+            cuda_map_lists_[count++] = fh;
+            cuda_map_lists_[count++] = cw;
+            cuda_map_lists_[count++] = ch;
+        }
+    }
+
 }
 
 
