@@ -244,11 +244,6 @@ void HyperColumnsLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
         for (int bottom_id = 1; bottom_id < bottom.size(); ++bottom_id) {
             Dtype* bottom_diff = bottom[bottom_id]->mutable_cpu_diff();
             const int channel = bottom[bottom_id]->shape(1);
-            vector<int> original_size;
-            original_size.push_back(bottom[bottom_id]->shape(2));
-            original_size.push_back(bottom[bottom_id]->shape(3));
-            std::map<int, double> weights;
-            get_map_point(weights, selected_index, original_size);
             for (int c = 0; c < channel; ++c) {
                 const int top_index = top[0]->offset(index, hyper_channel);
                 for (std::map<int, double>::iterator iter = weights.begin();
