@@ -407,6 +407,7 @@ message LayerParameter {
 
 message HyperColumnsParameter {
     optional bool is_train = 1 [default = true];
+    optional int32 sample_num = 2 [default = 1000];
 }
 // Message that stores parameters used to apply transformation
 // to the data layer's data
