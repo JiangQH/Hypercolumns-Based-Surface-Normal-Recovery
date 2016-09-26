@@ -123,6 +123,8 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     for (int i = 1; i < bottom.size(); ++i) {
         bottom_datas.push_back(bottom[i]->gpu_data());
     }
+    // here, in order to save time. I have to decide to use the hard coding
+    // which means I will 
     // a bug. cannot use vector here
     const int nthreads = N_ * sample_num_ * total_channels_;
     ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
