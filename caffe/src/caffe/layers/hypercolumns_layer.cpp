@@ -15,107 +15,66 @@
 namespace caffe {
 
 template <typename Dtype>
-void HyperColumnsLayer<Dtype>::get_map_point(std::map<int, double>& result,
-        int out_index, const vector<int>& original_map_size) {
-    /***
-     * This function uses the bilinear interpolation to locate the corresponding
-     * point in the original feature map with their corresponding weights.
-     * note, since the orinal size is known, represents the coordinates by a single
-     * value
-     * */
-   double scale = H_ / original_map_size[0];
-   int x = out_index / H_;
-   int y = out_index % H_;
-   int h = original_map_size[0];
-   int w = original_map_size[1];
-   double r = x / scale + 1.0 / (2.0 * scale) - 0.5;
-   double c = y / scale + 1.0 / (2.0 * scale) - 0.5;
-   int u = floor(r);
-   int v = floor(c);
-   double delta_r = r - u;
-   double delta_c = c - v;
-   if (u < 0)
-       delta_r = 1;
-   if (u + 1 >= h)
-       delta_r = 0;
-   if (v < 0)
-       delta_c = 1;
-   if (v + 1 >= w)
-       delta_c = 0;
-   result.clear();
-   if ((1-delta_r) * (1-delta_c) != 0)
-       result.insert(std::make_pair(u * w + v, 
-                   (1-delta_r)* (1-delta_c)));
-   if (delta_r * (1-delta_c) != 0)
-       result.insert(std::make_pair((u+1)*w + v,
-                   delta_r * (1-delta_c)));
-   if (delta_c * (1-delta_r) != 0)
-       result.insert(std::make_pair(u * w + v + 1,
-                   delta_c * (1-delta_r)));
-   if (delta_r * delta_c != 0)
-       result.insert(std::make_pair((u+1)*w + v + 1,
-                   delta_r * delta_c));
-
-}
-
-
-template <typename Dtype>
-void HyperColumnsLayer<Dtype>::generate_list(vector<int>& result, 
-        const Blob<Dtype>* feature_map, int batch) {
-    // generate sampling list. when training, 1k. when testing whole
+void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map,
+        bool is_gpu) {
+    // generate sampling list. when training do random sampling. when testing whole
     // make sure when training, the point is valid
-    int h = feature_map->shape(2);
-    int w = feature_map->shape(3);
-    vector<int> holds(h * w);
-    for (int i = 0; i < holds.size(); ++i) {
-        holds[i] = i;
-    }
+    // sample them all in one
+    selected_points_.clear();
     if (!is_train_) {
-        result = holds;
-    } else {
-        // shuffle the vector first
-        srand(time(NULL));
-        std::random_shuffle(holds.begin(), holds.end());
-        // do the job
-        result.clear();
-        int count = 0;
-        for (int i = 0; i < holds.size(); ++i) {
-            if (is_valid(feature_map, batch, holds[i])) { 
-                result.push_back(holds[i]);
-                ++count;
+        for (int i = 0; i < N_; ++i) {
+            for (int j = 0; j < sample_num_; ++j) {
+                selected_points_.push_back(j);
             }
-            if (count == 1000)
-                break;
+        }
+    } 
+    else {
+        // do the random sample job
+        vector<int> holds;
+        for(int i = 0; i < H_*W_; ++i) {
+            holds.push_back(i);
+        }
+        // the sample seed
+        const Dtype* feature_data;
+        if (!is_gpu) {
+             feature_data = feature_map->cpu_data();// for cpu
+        }
+        else {
+             feature_data = feature_map->gpu_data(); // for gpu
+        }
+        std::srand(time(0));
+        for (int i = 0; i < N_; ++i) {
+            std::random_shuffle(holds.begin(), holds.end());
+            int count = 0;
+            for (int j = 0; j < holds.size(); ++j) {
+                const int index = holds[j];
+                // check whether it is valid, and the value of each channel not all be zero
+                bool valid = true;
+                int zero_count = 0;
+                for (int c = 0; c < K_; ++c) {
+                    const int offset = feature_map->offset(i, c);
+                    const Dtype value = feature_data[offset+index];
+                    if (value != value) {
+                        valid = false;
+                        break;
+                    }
+                    if (value == Dtype(0.0)) {
+                        ++zero_count;
+                    }
+                }
+                if (valid && zero_count != K_) {
+                    selected_points_.push_back(index);
+                    ++count;
+                }
+                if (count > sample_num_) {
+                    break;
+                }
+            }
         }
     }
-
 }
 
-template <typename Dtype>
-bool HyperColumnsLayer<Dtype>::is_valid(const Blob<Dtype>* feature_map, 
-        int number, int index) {
-    // to indicate whether the sampled point is valid in normal feature_map
 
-    const Dtype* feature_data = feature_map->cpu_data();
-    const int offset1 = feature_map->offset(number, 0);
-    const int offset2 = feature_map->offset(number, 1);
-    const int offset3 = feature_map->offset(number, 2);
-    const double value1 = feature_data[offset1+index];
-    const double value2 = feature_data[offset2+index];
-    const double value3 = feature_data[offset3+index];
-    // check nan sampled number
-    if (value1 != value1 || value2 != value2 || value3 != value3)
-        return false;
-    return !(value1 == value2 && value2 == value3);
-}
-
-// useless seems
-template <typename Dtype>
-double HyperColumnsLayer<Dtype>::get_true_normal(const double normal_map) {
-    double result = (normal_map / 255 - 0.5) * 2;
-    //result -= 1;
-    return result;
-}
 
 template <typename Dtype>
 void HyperColumnsLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
@@ -131,12 +90,25 @@ void HyperColumnsLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     H_ = normal_map->shape(2);
     W_ = normal_map->shape(3);
     if (is_train_)
-        sample_num_ = 1000;
+        sample_num_ = this->layer_param_.hypercolumns_param().sample_num();
     else
         sample_num_ = H_ * W_;
+    // note here I make the normal be bottom 0, and push it to the data store
+    // to make consistence
+    width_.push_back(bottom[0]->shape(2));
+    height_.push_back(bottom[0]->shape(3));
+    scalef_.push_back(1);
+    padf_.push_back(0.0);
+    channels_.push_back(bottom[0]->channels());
     int channel = 0;
     for (int i = 1; i < bottom.size(); ++i) {
-        channel += bottom[i]->shape(1);
+        channels_.push_back(bottom[i]->channels());
+        channel += channels_[i];
+        width_.push_back(bottom[i]->shape(3));
+        height_.push_back(bottom[i]->shape(2));
+        const int scale = H_ / bottom[i]->shape(2);
+        scalef_.push_back(scale);
+        padf_.push_back(static_cast<Dtype>((scale-1.0)/2));
     }
     total_channels_ = channel;
 }
@@ -145,19 +117,15 @@ template <typename Dtype>
 void HyperColumnsLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
         const vector<Blob<Dtype>*>& top) {
     // reshape the top
-    // top[0] is the hypercolumns, which is M * K, where M = sample_num_ * N, K = channels_
-    // top[1] is the sampled normal point, which is M * 3
+    // top[0] is the hypercolumns, which is M * total_channels_, where M = sample_num_ * N_
+    // top[1] is the sampled normal point, which is M * k
     vector<int> top_shape;
     // top[0]
     top_shape.push_back(sample_num_ * N_);
     top_shape.push_back(total_channels_);
-    top_shape.push_back(1);
-    top_shape.push_back(1);
     top[0]->Reshape(top_shape);
     // top[1]
-    top_shape.clear();
-    top_shape.push_back(sample_num_ * N_);
-    top_shape.push_back(3);
+    top_shape[1] = K_;
     top[1]->Reshape(top_shape);
 }
 
@@ -168,66 +136,98 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     Dtype* top_normal = top[1]->mutable_cpu_data();
     Dtype* top_hypercolumns = top[0]->mutable_cpu_data();
     const Dtype* bottom_normal = bottom[0]->cpu_data();
-    vector<int> sampling_list;
-    caffe_set(top[1]->count(), Dtype(-1.0), top_normal);
+    caffe_set(top[1]->count(), Dtype(0.0), top_normal);
     caffe_set(top[0]->count(), Dtype(0), top_hypercolumns);
+    // generate sampling list 
+    generate_list(bottom[0], false);
+    // do the forward job
+    int h, w, n, index;
+    int fw, fh, cw, ch; // the floor and ceil elements
+    Dtype tempw, temph; // the raw divide
+    Dtype delta_w, delta_h;
+    int top_index = 0;
+    int top_n_index = 0;
+    for (int i = 0; i < sample_num_*N_; ++i) {
+        // for every top sampling feature point
+        index = selected_points_[i]; // the index
+        h = index / W_; // the w in the original
+        w = index % W_; // the h in the original
+        n = i % sample_num_; // the num
 
-    // for each batch, do the sampling job
-    for (int n = 0; n < N_; ++n) {
-        generate_list(sampling_list, bottom[0], n);
-        if (is_train_) {
-            selected_points_.insert(selected_points_.end(),
-                    sampling_list.begin(), sampling_list.end());
+        // find the corresponding locations for every bottom
+        for (int b = 1; b < bottom.size(); ++b) {
+            const Dtype* bottom_data = bottom[b]->cpu_data();
+            const int padding = height_[b] * width_[b];
+            const int channels = bottom[b]->channels();
+            int slice = n * channels * padding;
+            tempw = (w - padf_[b]) / scalef_[b]; // the computed 
+            temph = (h - padf_[b]) / scalef_[b];
+            fw = static_cast<int>(floor(tempw));
+            fh = static_cast<int>(floor(temph));
+            cw = static_cast<int>(ceil(tempw));
+            ch = static_cast<int>(ceil(temph));
+            // boundary check
+            fw = fw > 0 ? fw : 0;
+            cw = cw > 0 ? cw : 0;
+            fh = fh > 0 ? fh : 0;
+            ch = ch > 0 ? ch : 0;
+            cw = cw < width_[b] ? cw : fw;
+            ch = ch < height_[b] ? ch : fh;
+            // assign values
+            if ((fw == cw) && (fh == ch)) {
+                int offset = slice +  fh * width_[b] + fw;
+                for (int c = 0; c < channels; ++c) {
+                    top_hypercolumns[top_index++] = bottom_data[offset];
+                    offset += padding;
+                }
+            }
+            else if (fh == ch) {
+                delta_w = tempw - fw;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + 1;
+                for (int c = 0; c < channels; ++c) {
+                    top_hypercolumns[top_index++] = 
+                        bottom_data[offset1] * (1-delta_w) + bottom_data[offset2] * delta_w;
+                    offset1 += padding;
+                    offset2 += padding;
+                }
+            }
+            else if (fw == cw) {
+                delta_h = temph - fh;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + width_[b];
+                for (int c = 0; c < channels; ++c) {
+                    top_hypercolumns[top_index++] = 
+                        bottom_data[offset1] * (1-delta_h) + bottom_data[offset2] * delta_h;
+                    offset1 += padding;
+                    offset2 += padding;
+                }
+            }
+            else {
+                delta_w = tempw - fw;
+                delta_h = temph - fh;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + 1;
+                int offset3 = offset1 + width_[b];
+                int offset4 = offset3 + 1;
+                for (int c = 0; c < channels; ++c) {
+                    top_hypercolumns[top_index++] = 
+                        (bottom_data[offset1]*(1-delta_h) + bottom_data[offset3]*(delta_h)) * (1-delta_w) + 
+                        (bottom_data[offset2]*(1-delta_h) + bottom_data[offset4]*(delta_h)) * delta_w;
+                    offset1 += padding;
+                    offset2 += padding;
+                    offset3 += padding;
+                    offset4 += padding;
+                }
+            }
         }
-        // for every sampling point
-        for (int id = 0; id < sampling_list.size(); ++id) {
-            const int index = sampling_list[id];
-            //LOG(INFO) << "for batch " << n << " index is " << index;
-            // normal first. Here due to caffe's BGR channel change. need to change the channels back
-           // LOG(INFO) << "-------------Debugging------------selected point is" << index << " batch " << n;
-            for (int c = 0; c < top[1]->shape(1); ++c) {
-                const int top_index = top[1]->offset(n * sample_num_ + id, c);
-                const int bottom_index = bottom[0]->offset(n, c) + index; // here the channel change
-                /**
-                const double value = get_true_normal(bottom_normal[bottom_index]);
-                // for debug usage
-                LOG(INFO) << "For normal with bottom index " << bottom_index << " and top index " << top_index << " the value " << value;
-                **/
-                top_normal[top_index] = bottom_normal[bottom_index];
-            }
-            // hyperfeature next
-            int hyper_channel = 0;
-            for (int bottom_id = 1; bottom_id < bottom.size(); ++bottom_id) {
-                const Dtype* bottom_data = bottom[bottom_id]->cpu_data();
-                const int channel = bottom[bottom_id]->shape(1);
-                // get the correponding point in the corresponding bottom
-                vector<int> original_size;
-                original_size.push_back(bottom[bottom_id]->shape(2));
-                original_size.push_back(bottom[bottom_id]->shape(3));
-                std::map<int, double> weights;
-                get_map_point(weights, index, original_size);
-                // for debug usage, output the last and first to check
-                /**
-                LOG(INFO) << "for sample point " << id ;
-                for (std::map<int, double>::iterator iter = weights.begin(); iter != weights.end(); ++iter) {
-                    LOG(INFO) << "the coresponding to bottom " << bottom_id << " point is " << iter->first << " weights is " << iter->second << std::endl;
-                }
-                **/
-                for (int c = 0; c < channel; ++c){
-                    // compute the value, according to the point
-                    double value = 0;
-                    for (std::map<int, double>::iterator iter = weights.begin(); iter != weights.end(); ++iter) {
-                        const int bottom_index = bottom[bottom_id]->offset(n, c) + iter->first;
-                        value += bottom_data[bottom_index] * iter->second;
-                    }
-                    const int top_index = top[0]->offset(n * sample_num_  + id, hyper_channel);
-                    top_hypercolumns[top_index] = value;
-                    ++hyper_channel;
-                }
-            }
+
+        // sample the normal feature
+        for (int c = 0; c < K_; ++c) {
+            int offset = (n * K_ + c)*H_*W_ + index;
+            top_normal[top_n_index++] = bottom_normal[offset];
         }
     }
-   // LOG(INFO) << "forward done";
 }
 
 template <typename Dtype>
@@ -240,33 +240,97 @@ void HyperColumnsLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     for (int i = 1; i < bottom.size(); ++i) {
         caffe_set(bottom[i]->count(), Dtype(0), bottom[i]->mutable_cpu_diff());
     }
-    
     // do backward
-    for (int index = 0; index < selected_points_.size(); ++index) {
-        const int selected_index = selected_points_[index];
-        const int n = index / sample_num_;
-        int hyper_channel = 0;
-        for (int bottom_id = 1; bottom_id < bottom.size(); ++bottom_id) {
-            Dtype* bottom_diff = bottom[bottom_id]->mutable_cpu_diff();
-            const int channel = bottom[bottom_id]->shape(1);
-            vector<int> original_size;
-            original_size.push_back(bottom[bottom_id]->shape(2));
-            original_size.push_back(bottom[bottom_id]->shape(3));
-            std::map<int, double> weights;
-            get_map_point(weights, selected_index, original_size);
-            for (int c = 0; c < channel; ++c) {
-                const int top_index = top[0]->offset(index, hyper_channel);
-                for (std::map<int, double>::iterator iter = weights.begin();
-                     iter != weights.end(); ++iter) {
-                    const int bottom_index = bottom[bottom_id]->offset(n, c) + iter->first;
-                    bottom_diff[bottom_index] += top_diff[top_index] * iter->second;
+    int h, w, n, index;
+    int fw, fh, cw, ch;
+    Dtype tempw, temph;
+    Dtype delta_w, delta_h;
+    int top_index = 0;
+    for (int i = 0; i < N_ * sample_num_; ++i) {
+        index = selected_points_[i];
+        n = i % sample_num_;
+        h = index / W_;
+        w = index % W_;
+        // find the corresponding feature point in the bottom
+        for (int b = 1; b < bottom.size(); ++b) {
+            Dtype* bottom_diff = bottom[b]->mutable_cpu_diff();
+            const int padding = width_[b] * height_[b];
+            const int channels = bottom[b]->channels();
+            int slice = n * channels * padding;
+            tempw = (w - padf_[b]) / scalef_[b];
+            temph = (h - padf_[b]) / scalef_[b];
+            fw = static_cast<int>(floor(tempw));
+            fh = static_cast<int>(floor(temph));
+            cw = static_cast<int>(ceil(tempw));
+            ch = static_cast<int>(ceil(temph));
+            // boundary check
+            fw = fw > 0 ? fw : 0;
+            cw = cw > 0 ? cw : 0;
+            fh = fh > 0 ? fh : 0;
+            ch = ch > 0 ? ch : 0;
+            cw = cw < width_[b] ? cw : fw;
+            ch = ch < height_[b] ? ch : fh;
+            // assign values
+            if ((fw==cw) && (fh==ch)) {
+                int offset = slice + fh * width_[b] + fw;
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset] += top_diff[top_index++];
+                    offset += padding;
                 }
-                ++hyper_channel;
+            }
+            else if (fh == ch) {
+                delta_w = tempw - fw;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + 1;
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset1] += top_diff[top_index] * (1-delta_w);
+                    bottom_diff[offset2] += top_diff[top_index++] * delta_w;
+                    offset1 += padding;
+                    offset2 += padding;
+                }
+            }
+            else if (fw == cw) {
+                delta_h = temph - fh;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + width_[b];
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset1] += top_diff[top_index] * (1 - delta_h);
+                    bottom_diff[offset2] += top_diff[top_index++] * delta_h;
+                    offset1 += padding;
+                    offset2 += padding;
+                }
+            }
+            else {
+                delta_w = tempw - fw;
+                delta_h = temph - fh;
+                int offset1 = slice + fh * width_[b] + fw;
+                int offset2 = offset1 + 1;
+                int offset3 = offset1 + width_[b];
+                int offset4 = offset3 + 1;
+                for (int c = 0; c < channels; ++c) {
+                    bottom_diff[offset1] += top_diff[top_index] * (1-delta_w) * (1-delta_h);
+                    bottom_diff[offset2] += top_diff[top_index] * (1-delta_h) * delta_w;
+                    bottom_diff[offset3] += top_diff[top_index] * delta_h * (1-delta_w);
+                    bottom_diff[offset4] += top_diff[top_index++] * delta_h * delta_w;
+                    offset1 += padding;
+                    offset2 += padding;
+                    offset3 += padding;
+                    offset4 += padding;
+                }
             }
         }
     }
-    selected_points_.clear();
-    // LOG(INFO) << "backward done ";
+}
+
+template <typename Dtype>
+HyperColumnsLayer<Dtype>::~HyperColumnsLayer() {
+    CUDA_CHECK(cudaFree(cuda_samplelist_));
+    CUDA_CHECK(cudaFree(cuda_widths_));
+    CUDA_CHECK(cudaFree(cuda_heights_));
+    CUDA_CHECK(cudaFree(cuda_channels_));
+    CUDA_CHECK(cudaFree(cuda_map_lists_));
+    CUDA_POST_KERNEL_CHECK;
+    cuda_instanced_ = false;
 }
 
 #ifdef CPU_ONLY

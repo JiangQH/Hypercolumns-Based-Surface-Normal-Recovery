@@ -22,6 +22,8 @@ public:
     explicit HyperColumnsLayer(const LayerParameter& param) :
         Layer<Dtype>(param) { cuda_instanced_ = false;}
 
+    virtual ~HyperColumnsLayer();
+
     virtual void LayerSetUp(const vector<Blob<Dtype>*>& bottom,
                            const vector<Blob<Dtype>*>& top);
 
@@ -31,6 +33,7 @@ public:
     virtual inline const char* type() const { return "HyperColumns"; }
     virtual int MinBottomBlobs() const { return 1; }
     virtual inline int ExactNumTopBlobs() const { return 2; }
+
 
 protected:
     virtual void Forward_cpu(const vector<Blob<Dtype>*>& bottom,
@@ -60,7 +63,7 @@ protected:
 
     // for the use of gpu, I declare some elements here to avoid the multi-declare and save time
     int* cuda_samplelist_;
-    int* cuda_widths_, cuda_heights_, cuda_channels_;
+    int *cuda_widths_, *cuda_heights_, *cuda_channels_;
     double* cuda_map_lists_; // store the (tempw, temph, fh, fw, ch, cw) for every index in the sample map. so the size
                             // should be 6 * bottom_count * total_index
     bool cuda_instanced_;
@@ -79,7 +82,6 @@ private:
     bool is_valid(const Blob<Dtype>* feature_map, int batch, int index);
 
     void instance_cuda_data();
-    void uninstance_cuda_data();
 };// end of HyperColumnsLayer
 }// namespace caffe
 #endif // CAFFE_HYPERCOLUMNS_LAYER_HPP_
