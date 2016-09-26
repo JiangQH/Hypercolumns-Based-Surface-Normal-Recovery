@@ -62,6 +62,7 @@ __global__ void ForwardHypercolumns(const int nthreads,
         // assign values
         int padding = bottom_heights[bottom_id] * bottom_widths[bottom_id];
         int slice = (bottom_n * bottom_channels[bottom_id] + bottom_channel)* padding;
+
         const Dtype* bottom_data = bottom_datas[bottom_id];
         if ((fw == cw) && (fh == ch)) {
             int offset = slice + fh * bottom_widths[bottom_id] + fw;
@@ -122,9 +123,10 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     for (int i = 1; i < bottom.size(); ++i) {
         bottom_datas.push_back(bottom[i]->gpu_data());
     }
+    // a bug. cannot use vector here
     const int nthreads = N_ * sample_num_ * total_channels_;
     ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
-        nthreads, bottom_count, &bottom_datas[0], cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
+        nthreads, bottom_count, bottom_datas, cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
         sample_num_, total_channels_, cuda_samplelist_, W_, top_hypercolumns
     );
 
