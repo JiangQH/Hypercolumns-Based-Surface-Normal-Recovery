@@ -96,12 +96,14 @@ __global__ void ForwardHypercolumns(const int nthreads,
 template <typename Dtype>
 void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   const vector<Blob<Dtype>*>& top) {
+    // generate sampling list
+    generate_list(bottom[0], false);
     // check and instance the cuda needed data
     if (!cuda_instanced_) {
         instance_cuda_data();
+        CUDA_CHECK(cudaMalloc(&cuda_samplelist_, selected_points_.size() * sizeof(int)));
     }
     // generate the sampling list and copy it
-    generate_list(bottom[0], false);
     CUDA_CHECK(cudaMemcpy(cuda_samplelist_, &selected_points_[0], selected_points_.size()* sizeof(int), cudaMemcpyHostToDevice));
 
     // forward step, forward normal first
@@ -111,6 +113,7 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     ForwardNormal<Dtype><<<CAFFE_GET_BLOCKS(count1), CAFFE_CUDA_NUM_THREADS>>>(
       count1, bottom_normal, N_, K_, H_, W_, sample_num_, cuda_samplelist_, top_normal
     );
+
 
     // then forward the hypercolumns
     Dtype* top_hypercolumns = top[0]->mutable_gpu_data();
@@ -124,6 +127,7 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         nthreads, bottom_count, &bottom_datas[0], cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
         sample_num_, total_channels_, cuda_samplelist_, W_, top_hypercolumns
     );
+
 }
 
 
@@ -214,14 +218,12 @@ void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
 
 template <typename Dtype>
 void HyperColumnsLayer<Dtype>::instance_cuda_data() {
-    // instance the sampling list
-    CUDA_CHECK(cudaMalloc(&cuda_samplelist_, selected_points_.size() * sizeof(int)));
     // instance the width, height and channel
-    CUDA_CHECK(cudaMalloc(&(this->cuda_widths_), width_.size() * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&cuda_widths_, width_.size() * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(cuda_widths_, &width_[0], width_.size()* sizeof(int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMalloc(&(this->cuda_heights_), height_.size() * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&cuda_heights_, height_.size() * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(cuda_heights_, &height_[0], height_.size()* sizeof(int), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMalloc(&(this->cuda_channels_), channels_.size() * sizeof(int)));
+    CUDA_CHECK(cudaMalloc(&cuda_channels_, channels_.size() * sizeof(int)));
     CUDA_CHECK(cudaMemcpy(cuda_channels_, &channels_[0], channels_.size()* sizeof(int), cudaMemcpyHostToDevice));
     generate_bilinear_map(); // generate the mapping list
     CUDA_POST_KERNEL_CHECK;
@@ -251,7 +253,7 @@ void HyperColumnsLayer<Dtype>::generate_bilinear_map() {
     int h, w;
     double fw, fh, cw, ch;
     double tempw, temph;
-    int count = 0;
+    vector<double> mappings;
     for (int index = 0; index < total_index; ++index) {
         h = index / W_;
         w = index % W_;
@@ -269,15 +271,15 @@ void HyperColumnsLayer<Dtype>::generate_bilinear_map() {
             ch = ch > 0 ? ch : 0;
             cw = cw < width_[b] ? cw : fw;
             ch = ch < height_[b] ? ch : fh;
-            cuda_map_lists_[count++] = tempw;
-            cuda_map_lists_[count++] = temph;
-            cuda_map_lists_[count++] = fw;
-            cuda_map_lists_[count++] = fh;
-            cuda_map_lists_[count++] = cw;
-            cuda_map_lists_[count++] = ch;
+            mappings.push_back(tempw);
+            mappings.push_back(temph);
+            mappings.push_back(fw);
+            mappings.push_back(fh);
+            mappings.push_back(cw);
+            mappings.push_back(ch);
         }
     }
-
+    CUDA_CHECK(cudaMemcpy(cuda_map_lists_, &mappings[0], 6 * bottom_count * total_index * sizeof(double), cudaMemcpyHostToDevice));
 }
 
 
