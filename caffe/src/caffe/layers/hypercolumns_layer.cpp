@@ -152,7 +152,7 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
         index = selected_points_[i]; // the index
         h = index / W_; // the w in the original
         w = index % W_; // the h in the original
-        n = i % sample_num_; // the num
+        n = i / sample_num_; // the num
 
         // find the corresponding locations for every bottom
         for (int b = 1; b < bottom.size(); ++b) {
@@ -251,6 +251,10 @@ void HyperColumnsLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
         n = i % sample_num_;
         h = index / W_;
         w = index % W_;
+        // for debug
+        if (i == 0 || (i = N_ * sample_num_ - 1)) {
+            LOG(INFO) << "the sampled index is :" << index << " and the w, h is: " << w << " " << h;
+        }
         // find the corresponding feature point in the bottom
         for (int b = 1; b < bottom.size(); ++b) {
             Dtype* bottom_diff = bottom[b]->mutable_cpu_diff();
@@ -270,6 +274,10 @@ void HyperColumnsLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
             ch = ch > 0 ? ch : 0;
             cw = cw < width_[b] ? cw : fw;
             ch = ch < height_[b] ? ch : fh;
+            if (i == 0 || (i == N_*sample_num_-1)) {
+                LOG(INFO) << "for point " << i << " bottom " << b-1 << "the corresponding is "  << fw
+                          << " " << fh << " " << cw << " " << ch;
+            }
             // assign values
             if ((fw==cw) && (fh==ch)) {
                 int offset = slice + fh * width_[b] + fw;
