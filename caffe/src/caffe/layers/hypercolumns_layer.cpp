@@ -15,8 +15,7 @@
 namespace caffe {
 
 template <typename Dtype>
-void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map,
-        bool is_gpu) {
+void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map) {
     // generate sampling list. when training do random sampling. when testing whole
     // make sure when training, the point is valid
     // sample them all in one
@@ -35,13 +34,7 @@ void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map,
             holds.push_back(i);
         }
         // the sample seed
-        const Dtype* feature_data;
-        if (!is_gpu) {
-             feature_data = feature_map->cpu_data();// for cpu
-        }
-        else {
-             feature_data = feature_map->gpu_data(); // for gpu
-        }
+        const Dtype* feature_data = feature_map->cpu_data();// for cpp
         std::srand(time(0));
         for (int i = 0; i < N_; ++i) {
             std::random_shuffle(holds.begin(), holds.end());
@@ -51,6 +44,7 @@ void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map,
                 // check whether it is valid, and the value of each channel not all be zero
                 bool valid = true;
                 int zero_count = 0;
+                // data check
                 for (int c = 0; c < K_; ++c) {
                     const int offset = feature_map->offset(i, c);
                     const Dtype value = feature_data[offset+index];
@@ -62,11 +56,12 @@ void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map,
                         ++zero_count;
                     }
                 }
+                // assign
                 if (valid && zero_count != K_) {
                     selected_points_.push_back(index);
                     ++count;
                 }
-                if (count > sample_num_) {
+                if (count >= sample_num_) {
                     break;
                 }
             }
@@ -139,7 +134,7 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     caffe_set(top[1]->count(), Dtype(0.0), top_normal);
     caffe_set(top[0]->count(), Dtype(0), top_hypercolumns);
     // generate sampling list 
-    generate_list(bottom[0], false);
+    generate_list(bottom[0]);
     // do the forward job
     int h, w, n, index;
     int fw, fh, cw, ch; // the floor and ceil elements

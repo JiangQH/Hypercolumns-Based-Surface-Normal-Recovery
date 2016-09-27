@@ -74,7 +74,7 @@ private:
     void generate_bilinear_map(); // this function is used to do the map generation at the first time, to avoid multiple
                                   // computation in the gpu version
 
-    void generate_list(const Blob<Dtype>* feature_map, bool is_gpu = true); // generate random list
+    void generate_list(const Blob<Dtype>* feature_map); // generate random list
     
     double get_true_normal(const double normal_map);// get the true normal value according to the  normal_map point
 

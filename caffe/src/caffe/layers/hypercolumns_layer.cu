@@ -33,7 +33,7 @@ __global__ void ForwardNormal(const int nthreads,
 
 template <typename Dtype>
 __global__ void ForwardHypercolumns(const int nthreads,
-    const int bottom_count, const Dtype** bottom_datas, const int* bottom_channels,
+    const int bottom_count, const Dtype* bottom_datas, const int* bottom_channels,
     const int* bottom_heights, const int* bottom_widths, const double* bottom_maplists,
     const int sample_pernum, const int top_channels,  const int* sampling_list,
     const int W, Dtype* const top_data) {
@@ -62,8 +62,18 @@ __global__ void ForwardHypercolumns(const int nthreads,
         // assign values
         int padding = bottom_heights[bottom_id] * bottom_widths[bottom_id];
         int slice = (bottom_n * bottom_channels[bottom_id] + bottom_channel)* padding;
-
-        const Dtype* bottom_data = bottom_datas[bottom_id];
+        const Dtype* bottom_data = bottom_datas;
+        /**
+        switch (bottom_id) {
+            case 0: bottom_data = bottom0; break;
+            case 1: bottom_data = bottom1; break;
+            case 2: bottom_data = bottom2; break;
+            case 3: bottom_data = bottom3; break;
+            case 4: bottom_data = bottom4; break;
+            case 5: bottom_data = bottom5; break;
+            default: break;
+        }
+         **/
         if ((fw == cw) && (fh == ch)) {
             int offset = slice + fh * bottom_widths[bottom_id] + fw;
             top_data[index] = bottom_data[offset];
@@ -98,7 +108,7 @@ template <typename Dtype>
 void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
   const vector<Blob<Dtype>*>& top) {
     // generate sampling list
-    generate_list(bottom[0], false);
+    generate_list(bottom[0]);
     // check and instance the cuda needed data
     if (!cuda_instanced_) {
         instance_cuda_data();
@@ -108,6 +118,8 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     CUDA_CHECK(cudaMemcpy(cuda_samplelist_, &selected_points_[0], selected_points_.size()* sizeof(int), cudaMemcpyHostToDevice));
 
     // forward step, forward normal first
+    LOG(INFO) << "the first selected points " << selected_points_[0]; // here check whether cuda_samplelist_ is correct
+    LOG(INFO) << "the last selected points " << selected_points_[selected_points_.size()-1];
     Dtype* top_normal = top[1]->mutable_gpu_data();
     const Dtype* bottom_normal = bottom[0]->gpu_data();
     const int count1 = top[1]->count();
@@ -124,11 +136,11 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
         bottom_datas.push_back(bottom[i]->gpu_data());
     }
     // here, in order to save time. I have to decide to use the hard coding
-    // which means I will 
+    // which means I will fix the total bottoms here
     // a bug. cannot use vector here
     const int nthreads = N_ * sample_num_ * total_channels_;
     ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
-        nthreads, bottom_count, bottom_datas, cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
+        nthreads, bottom_count, bottom[1]->gpu_data(), cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
         sample_num_, total_channels_, cuda_samplelist_, W_, top_hypercolumns
     );
 
