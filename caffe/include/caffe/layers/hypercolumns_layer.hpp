@@ -59,7 +59,7 @@ protected:
     vector<int> scalef_;
     vector<Dtype> padf_;
     vector<int> channels_; // store the channels for every bottom
-
+    vector<double> mappings_; // for temp debug use now
     // for the use of gpu, I declare some elements here to avoid the multi-declare and save time
     int* cuda_samplelist_;
     int *cuda_widths_, *cuda_heights_, *cuda_channels_;

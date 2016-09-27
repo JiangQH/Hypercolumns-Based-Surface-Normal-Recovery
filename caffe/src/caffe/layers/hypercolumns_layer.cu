@@ -117,9 +117,6 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     // generate the sampling list and copy it
     CUDA_CHECK(cudaMemcpy(cuda_samplelist_, &selected_points_[0], selected_points_.size()* sizeof(int), cudaMemcpyHostToDevice));
 
-    // forward step, forward normal first
-    LOG(INFO) << "the first selected points " << selected_points_[0]; // here check whether cuda_samplelist_ is correct
-    LOG(INFO) << "the last selected points " << selected_points_[selected_points_.size()-1];
     Dtype* top_normal = top[1]->mutable_gpu_data();
     const Dtype* bottom_normal = bottom[0]->gpu_data();
     const int count1 = top[1]->count();
@@ -130,11 +127,25 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
 
     // then forward the hypercolumns
     Dtype* top_hypercolumns = top[0]->mutable_gpu_data();
+    const int bottom_count = bottom.size();
+    /**
     vector<const Dtype*> bottom_datas;
     const int bottom_count = bottom.size();
     for (int i = 1; i < bottom.size(); ++i) {
         bottom_datas.push_back(bottom[i]->gpu_data());
     }
+    **/
+    // forward step, forward normal first
+    const int first = selected_points_.[0];
+    const int last = selected_points_.[selected_points_.size()-1];
+    LOG(INFO) << "the first selected points " << first; // here check whether cuda_samplelist_ is correct
+    // output for the second bottom values
+    int startid = first * (bottom_count - 1) * 6 + 6;
+    LOG(INFO) << "tempw " << mappings_[startid++] << " temph " << mappings_[startid++] 
+      << " fw " << mappings_[startid++] << " fh " << mappings_[startid++] 
+      << " cw " << mappings_[startid++] << " ch " << mappings_[startid++];
+    LOG(INFO) << "the last selected points " << last;
+    
     // here, in order to save time. I have to decide to use the hard coding
     // which means I will fix the total bottoms here
     // a bug. cannot use vector here
@@ -285,7 +296,6 @@ void HyperColumnsLayer<Dtype>::generate_bilinear_map() {
     int h, w;
     double fw, fh, cw, ch;
     double tempw, temph;
-    vector<double> mappings;
     for (int index = 0; index < total_index; ++index) {
         h = index / W_;
         w = index % W_;
@@ -303,12 +313,12 @@ void HyperColumnsLayer<Dtype>::generate_bilinear_map() {
             ch = ch > 0 ? ch : 0;
             cw = cw < width_[b] ? cw : fw;
             ch = ch < height_[b] ? ch : fh;
-            mappings.push_back(tempw);
-            mappings.push_back(temph);
-            mappings.push_back(fw);
-            mappings.push_back(fh);
-            mappings.push_back(cw);
-            mappings.push_back(ch);
+            mappings_.push_back(tempw);
+            mappings_.push_back(temph);
+            mappings_.push_back(fw);
+            mappings_.push_back(fh);
+            mappings_.push_back(cw);
+            mappings_.push_back(ch);
         }
     }
     CUDA_CHECK(cudaMemcpy(cuda_map_lists_, &mappings[0], 6 * bottom_count * total_index * sizeof(double), cudaMemcpyHostToDevice));
