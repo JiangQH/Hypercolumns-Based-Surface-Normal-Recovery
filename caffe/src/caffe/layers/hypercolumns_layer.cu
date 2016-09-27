@@ -134,18 +134,23 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     for (int i = 1; i < bottom.size(); ++i) {
         bottom_datas.push_back(bottom[i]->gpu_data());
     }
-    **/
+
     // forward step, forward normal first
-    const int first = selected_points_.[0];
-    const int last = selected_points_.[selected_points_.size()-1];
+    const int first = selected_points_[0];
+    const int last = selected_points_[selected_points_.size()-1];
     LOG(INFO) << "the first selected points " << first; // here check whether cuda_samplelist_ is correct
     // output for the second bottom values
-    int startid = first * (bottom_count - 1) * 6 + 6;
-    LOG(INFO) << "tempw " << mappings_[startid++] << " temph " << mappings_[startid++] 
-      << " fw " << mappings_[startid++] << " fh " << mappings_[startid++] 
-      << " cw " << mappings_[startid++] << " ch " << mappings_[startid++];
-    LOG(INFO) << "the last selected points " << last;
-    
+
+    int startid = first * (bottom_count - 1) * 6 ;
+    for (int i = 0; i < bottom_count-1; ++i) {
+        LOG(INFO) << "tempw " << mappings_[startid] << " temph " << mappings_[startid+1]
+        << " fw " << mappings_[startid+2] << " fh " << mappings_[startid+3]
+        << " cw " << mappings_[startid+4] << " ch " << mappings_[startid+5];
+        startid += 6;
+    }
+**/
+
+
     // here, in order to save time. I have to decide to use the hard coding
     // which means I will fix the total bottoms here
     // a bug. cannot use vector here
@@ -321,7 +326,7 @@ void HyperColumnsLayer<Dtype>::generate_bilinear_map() {
             mappings_.push_back(ch);
         }
     }
-    CUDA_CHECK(cudaMemcpy(cuda_map_lists_, &mappings[0], 6 * bottom_count * total_index * sizeof(double), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(cuda_map_lists_, &mappings_[0], 6 * bottom_count * total_index * sizeof(double), cudaMemcpyHostToDevice));
 }
 
 
