@@ -152,7 +152,8 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
 
 template <typename Dtype>
 __global__ void BackwardHypercolumns(const int nthreads,
-     const int bottom_count, Dtype** const bottom_diffs, const int* bottom_channels,
+     const int bottom_count, Dtype* const bottom1, Dtype* const bottom2, Dtype* const bottom3,
+     Dtype* const bottom4, Dtype* const bottom5, Dtype* const bottom6,const int* bottom_channels,
      const int* bottom_heights, const int* bottom_widths, const double* bottom_maplists, const int sample_pernum,
      const int top_channels,  const int* sampling_list,
      const int W, const Dtype* const top_diff) {
@@ -161,8 +162,8 @@ __global__ void BackwardHypercolumns(const int nthreads,
         const int top_n = index / top_channels; // find the corresponding index in the sampling list
         const int bottom_n = top_n / sample_pernum;
         int bottom_channel = index % top_channels;
-        int bottom_id = 0;
-        while(bottom_id<bottom_count) {
+        int bottom_id = 1;
+        while(bottom_id < bottom_count) {
             if(bottom_channel - bottom_channels[bottom_id] < 0) {
                 break;
             }
@@ -171,17 +172,26 @@ __global__ void BackwardHypercolumns(const int nthreads,
         }
         // now have the bottom_id, bottom_num, bottom_channel. needs to get the corresponding bottom feature map point
         const int sampled_index = sampling_list[top_n];
-        const int startid = (sampled_index * bottom_count + bottom_id) * 6; // hard coding here
+        const int startid = (sampled_index * (bottom_count-1) + bottom_id - 1) * 6; // hard coding here
         double tempw = bottom_maplists[startid];
         double temph = bottom_maplists[startid+1];
-        int fw = bottom_maplists[startid+2];
-        int fh = bottom_maplists[startid+3];
-        int cw = bottom_maplists[startid+4];
-        int ch = bottom_maplists[startid+5];
+        int fw = static_cast<int>(bottom_maplists[startid+2]);
+        int fh = static_cast<int>(bottom_maplists[startid+3]);
+        int cw = static_cast<int>(bottom_maplists[startid+4]);
+        int ch = static_cast<int>(bottom_maplists[startid+5]);
         // assign values
         int padding = bottom_heights[bottom_id] * bottom_widths[bottom_id];
         int slice = (bottom_n * bottom_channels[bottom_id] + bottom_channel)* padding;
-        Dtype* bottom_diff = bottom_diffs[bottom_id];
+        Dtype* bottom_diff;
+        switch(bottom_id) {
+            case 1: bottom_diff = bottom1; break;
+            case 2: bottom_diff = bottom2; break;
+            case 3: bottom_diff = bottom3; break;
+            case 4: bottom_diff = bottom4; break;
+            case 5: bottom_diff = bottom5; break;
+            case 6: bottom_diff = bottom6; break;
+            default: break;
+        }
         if ((fw == cw) && (fh == ch)) {
             int offset = slice + fh * bottom_widths[bottom_id] + fw;
             bottom_diff[offset] += top_diff[index];
@@ -221,15 +231,20 @@ void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
       const vector<bool>& propagate_down, const vector<Blob<Dtype>*>& bottom) {
    // backward step, back the diff in top[0] to the bottom, except bottom[0]
     const Dtype* top_diff = top[0]->gpu_diff();
+    /**
     vector<Dtype*> bottom_diffs;
     const int bottom_count = bottom.size() - 1;
     for (int i = 1; i < bottom.size(); ++i) {
         bottom_diffs.push_back(bottom[i]->mutable_gpu_diff());
     }
+    **/
+    const int bottom_count = bottom.size();
     const int nthreads = N_ * sample_num_ * total_channels_;
     BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
-        nthreads, bottom_count, &bottom_diffs[0], cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_, sample_num_,
-        total_channels_, cuda_samplelist_, W_, top_diff
+        nthreads, bottom_count, bottom[1]->mutable_gpu_diff(), bottom[2]->mutable_gpu_diff(),
+        bottom[3]->mutable_gpu_diff(), bottom[4]->mutable_gpu_diff(),bottom[5]->mutable_gpu_diff(),
+        cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_, sample_num_,total_channels_, 
+        cuda_samplelist_, W_, top_diff
     );
 }
 
