@@ -33,7 +33,8 @@ __global__ void ForwardNormal(const int nthreads,
 
 template <typename Dtype>
 __global__ void ForwardHypercolumns(const int nthreads,
-    const int bottom_count, const Dtype* bottom_datas, const int* bottom_channels,
+    const int bottom_count, const Dtype* bottom1, const Dtype* bottom2,
+    const Dtype* bottom3, const Dtype* bottom4, const Dtype* bottom5, const Dtype* bottom6,const int* bottom_channels,
     const int* bottom_heights, const int* bottom_widths, const double* bottom_maplists,
     const int sample_pernum, const int top_channels,  const int* sampling_list,
     const int W, Dtype* const top_data) {
@@ -42,8 +43,8 @@ __global__ void ForwardHypercolumns(const int nthreads,
         const int top_n = index / top_channels; // find the corresponding index in the sampling list
         const int bottom_n = top_n / sample_pernum;
         int bottom_channel = index % top_channels;
-        int bottom_id = 0;
-        while(bottom_id<bottom_count) {
+        int bottom_id = 1;
+        while(bottom_id < bottom_count) {
             if(bottom_channel - bottom_channels[bottom_id] < 0) {
                 break;
             }
@@ -52,28 +53,27 @@ __global__ void ForwardHypercolumns(const int nthreads,
         }
         // now have the bottom_id, bottom_num, bottom_channel. needs to get the corresponding bottom feature map point
         const int sampled_index = sampling_list[top_n];
-        const int startid = (sampled_index * bottom_count + bottom_id) * 6; // hard coding here
+        const int startid = (sampled_index * (bottom_count - 1)+ bottom_id - 1) * 6; // hard coding here
         double tempw = bottom_maplists[startid];
         double temph = bottom_maplists[startid+1];
-        int fw = bottom_maplists[startid+2];
-        int fh = bottom_maplists[startid+3];
-        int cw = bottom_maplists[startid+4];
-        int ch = bottom_maplists[startid+5];
+        int fw = static_cast<int>(bottom_maplists[startid+2]);
+        int fh = static_cast<int>(bottom_maplists[startid+3]);
+        int cw = static_cast<int>(bottom_maplists[startid+4]);
+        int ch = static_cast<int>(bottom_maplists[startid+5]);
         // assign values
         int padding = bottom_heights[bottom_id] * bottom_widths[bottom_id];
         int slice = (bottom_n * bottom_channels[bottom_id] + bottom_channel)* padding;
-        const Dtype* bottom_data = bottom_datas;
-        /**
+        const Dtype* bottom_data;
         switch (bottom_id) {
-            case 0: bottom_data = bottom0; break;
             case 1: bottom_data = bottom1; break;
             case 2: bottom_data = bottom2; break;
             case 3: bottom_data = bottom3; break;
             case 4: bottom_data = bottom4; break;
             case 5: bottom_data = bottom5; break;
+            case 6: bottom_data = bottom6; break;
             default: break;
         }
-         **/
+
         if ((fw == cw) && (fh == ch)) {
             int offset = slice + fh * bottom_widths[bottom_id] + fw;
             top_data[index] = bottom_data[offset];
@@ -131,7 +131,7 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     // then forward the hypercolumns
     Dtype* top_hypercolumns = top[0]->mutable_gpu_data();
     vector<const Dtype*> bottom_datas;
-    const int bottom_count = bottom.size() - 1;
+    const int bottom_count = bottom.size();
     for (int i = 1; i < bottom.size(); ++i) {
         bottom_datas.push_back(bottom[i]->gpu_data());
     }
@@ -140,7 +140,8 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     // a bug. cannot use vector here
     const int nthreads = N_ * sample_num_ * total_channels_;
     ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
-        nthreads, bottom_count, bottom[1]->gpu_data(), cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
+        nthreads, bottom_count, bottom[1]->gpu_data(), bottom[2]->gpu_data(),bottom[3]->gpu_data(),bottom[4]->gpu_data(),
+        bottom[5]->gpu_data(),bottom[6]->gpu_data(),cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
         sample_num_, total_channels_, cuda_samplelist_, W_, top_hypercolumns
     );
 
