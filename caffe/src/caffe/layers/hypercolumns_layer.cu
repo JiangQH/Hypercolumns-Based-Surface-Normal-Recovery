@@ -243,8 +243,8 @@ void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
         nthreads, bottom_count, bottom[1]->mutable_gpu_diff(), bottom[2]->mutable_gpu_diff(),
         bottom[3]->mutable_gpu_diff(), bottom[4]->mutable_gpu_diff(),bottom[5]->mutable_gpu_diff(),
-        cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_, sample_num_,total_channels_, 
-        cuda_samplelist_, W_, top_diff
+        bottom[6]->mutable_gpu_diff(), cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_, sample_num_,
+        total_channels_, cuda_samplelist_, W_, top_diff
     );
 }
 
