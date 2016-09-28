@@ -171,10 +171,11 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
             ch = ch > 0 ? ch : 0;
             cw = cw < width_[b] ? cw : fw;
             ch = ch < height_[b] ? ch : fh;
+            /**
             if (i == 0 || (i == N_*sample_num_-1)) {
                 LOG(INFO) << "for point " << i << " bottom " << b-1 << "the corresponding is "  << fw
                           << " " << fh << " " << cw << " " << ch;
-            }
+            }**/
             // assign values
             if ((fw == cw) && (fh == ch)) {
                 int offset = slice +  fh * width_[b] + fw;
@@ -224,11 +225,12 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
             }
         }
 
-        // sample the normal feature
+        // sample the normal feature, if is train. otherwise skip it
         for (int c = 0; c < K_; ++c) {
-            int offset = (n * K_ + c)*H_*W_ + index;
+            int offset = (n * K_ + c) * H_ * W_ + index;
             top_normal[top_n_index++] = bottom_normal[offset];
         }
+
     }
 }
 

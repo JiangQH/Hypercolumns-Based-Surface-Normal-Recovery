@@ -117,12 +117,15 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     // generate the sampling list and copy it
     CUDA_CHECK(cudaMemcpy(cuda_samplelist_, &selected_points_[0], selected_points_.size()* sizeof(int), cudaMemcpyHostToDevice));
 
+
     Dtype* top_normal = top[1]->mutable_gpu_data();
     const Dtype* bottom_normal = bottom[0]->gpu_data();
     const int count1 = top[1]->count();
     ForwardNormal<Dtype><<<CAFFE_GET_BLOCKS(count1), CAFFE_CUDA_NUM_THREADS>>>(
-      count1, bottom_normal, N_, K_, H_, W_, sample_num_, cuda_samplelist_, top_normal
+            count1, bottom_normal, N_, K_, H_, W_, sample_num_, cuda_samplelist_, top_normal
     );
+
+
 
 
     // then forward the hypercolumns
