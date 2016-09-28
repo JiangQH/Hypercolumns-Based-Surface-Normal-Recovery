@@ -1,3 +1,4 @@
+from math import floor, ceil
 def getbilinear(inputs, W_=224):
 	widths = (224,112,56,28,14,1)
 	h = inputs / W_;
@@ -11,17 +12,23 @@ def getbilinear(inputs, W_=224):
 		fh = floor(temph)
 		cw = ceil(tempw)
 		ch = ceil(temph)
-		fw = fw > 0 ? fw : 0;                                                                     
-                cw = cw > 0 ? cw : 0;
-                fh = fh > 0 ? fh : 0;
-                ch = ch > 0 ? ch : 0;
-                cw = cw < width_[b] ? cw : fw;                                                            
-                ch = ch < height_[b] ? ch : fh;
+                if fw < 0:
+                    fw = 0
+                if fh < 0:
+                    fh = 0
+                if cw < 0:
+                    cw = 0
+                if ch < 0:
+                    ch = 0
+                if cw > width:
+                    cw = width
+                if ch > width:
+                    ch = width
 		if (fw==cw) and (fh==ch):
-			print "for bottom width " w, fh*width+fw, 1
+			print "for bottom width ",  w, fh*width+fw, 1
 		elif (fh==ch):
-			print "for bottom width " w, fh*width+fw, (1-tempw+fw), fh*width+fw+1, tempw-fw
+			print "for bottom width " , w, fh*width+fw, (1-tempw+fw), fh*width+fw+1, tempw-fw
 		elif (fw==cw):
-			print "for bottom width " w, fh*width+fw, (1-temph+fh), fh*width+fw+width, temph-fh
+			print "for bottom width ",  w, fh*width+fw, (1-temph+fh), fh*width+fw+width, temph-fh
 		else:
-			print "for bottom width " w, fh*width+fw, (1-temph+fh)*(1-tempw+fw), fh*width+fw+1, (1-temph+fh)*(tempw-fw), fh*width+fw+width, (temph-fh)*(1-tempw+fw), fh*width+fw+width+1, (temph-fh)*(tempw-fw)
+			print "for bottom width ",  w, fh*width+fw, (1-temph+fh)*(1-tempw+fw), fh*width+fw+1, (1-temph+fh)*(tempw-fw), fh*width+fw+width, (temph-fh)*(1-tempw+fw), fh*width+fw+width+1, (temph-fh)*(tempw-fw)
