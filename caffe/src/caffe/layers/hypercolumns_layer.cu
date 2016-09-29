@@ -157,7 +157,7 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
     // here, in order to save time. I have to decide to use the hard coding
     // which means I will fix the total bottoms here
     // a bug. cannot use vector here
-    const int nthreads = N_ * sample_num_ * total_channels_;
+    const int nthreads = top[0]->count();
     ForwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
         nthreads, bottom_count, bottom[1]->gpu_data(), bottom[2]->gpu_data(),bottom[3]->gpu_data(),bottom[4]->gpu_data(),
         bottom[5]->gpu_data(),bottom[6]->gpu_data(),cuda_channels_, cuda_heights_, cuda_widths_, cuda_map_lists_,
@@ -258,7 +258,7 @@ void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
     }
     **/
     const int bottom_count = bottom.size();
-    const int nthreads = N_ * sample_num_ * total_channels_;
+    const int nthreads = top[0]->count();
     BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
         nthreads, bottom_count, bottom[1]->mutable_gpu_diff(), bottom[2]->mutable_gpu_diff(),
         bottom[3]->mutable_gpu_diff(), bottom[4]->mutable_gpu_diff(),bottom[5]->mutable_gpu_diff(),

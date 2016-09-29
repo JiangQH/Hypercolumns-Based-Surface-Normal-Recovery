@@ -22,8 +22,10 @@ void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map) {
     selected_points_.clear();
     if (!is_train_) {
         for (int i = 0; i < N_; ++i) {
+            int sample_index = 0;
             for (int j = 0; j < sample_num_; ++j) {
-                selected_points_.push_back(j);
+                selected_points_.push_back(sample_index);
+                sample_index += skip_ratio_;
             }
         }
     } 
@@ -35,7 +37,7 @@ void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map) {
         }
         // the sample seed
         const Dtype* feature_data = feature_map->cpu_data();// for cpp
-        std::srand(time(0));
+        std::srand(unsigned(std::time(0));
         for (int i = 0; i < N_; ++i) {
             std::random_shuffle(holds.begin(), holds.end());
             int count = 0;
@@ -79,15 +81,23 @@ void HyperColumnsLayer<Dtype>::LayerSetUp(const vector<Blob<Dtype>*>& bottom,
     // bottom: normal_map, conv1_2, conv2_2, conv3_3, conv4_3, conv5_3, fc-conv7. length of 7
     // top: top[0] hypercolumns, top[1] the corresponding sampled normal point
     is_train_ = this->layer_param_.hypercolumns_param().is_train();
+    skip_ratio_ = this->layer_param_.hypercolumns_param().skip_ratio();
     const Blob<Dtype>* normal_map = bottom[0];
     N_ = normal_map->shape(0);
     K_ = normal_map->shape(1);
     H_ = normal_map->shape(2);
     W_ = normal_map->shape(3);
+    // here check the skip_ratio_, to make sure it can divide the H_*W_
+    while(true) {
+        if ((H_*W_) % skip_ratio_ == 0)
+            break;
+        else
+            --skip_ratio_;
+    }
     if (is_train_)
         sample_num_ = this->layer_param_.hypercolumns_param().sample_num();
     else
-        sample_num_ = H_ * W_;
+        sample_num_ = H_ * W_ / skip_ratio_; // skip some data points
     // note here I make the normal be bottom 0, and push it to the data store
     // to make consistence
     width_.push_back(bottom[0]->shape(2));
@@ -118,6 +128,8 @@ void HyperColumnsLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     // top[0]
     top_shape.push_back(sample_num_ * N_);
     top_shape.push_back(total_channels_);
+    top_shape.push_back(1);
+    top_shape.push_back(1);
     top[0]->Reshape(top_shape);
     // top[1]
     top_shape[1] = K_;
@@ -142,16 +154,13 @@ void HyperColumnsLayer<Dtype>::Forward_cpu(const vector<Blob<Dtype>*>& bottom,
     Dtype delta_w, delta_h;
     int top_index = 0;
     int top_n_index = 0;
-    for (int i = 0; i < sample_num_*N_; ++i) {
+    for (int i = 0; i < selected_points_.size(); ++i) {
         // for every top sampling feature point
         index = selected_points_[i]; // the index
         h = index / W_; // the w in the original
         w = index % W_; // the h in the original
         n = i / sample_num_; // the num
         // for debug
-        if (i == 0 || (i == N_ * sample_num_ - 1)) {
-            LOG(INFO) << "the sampled index is :" << index << " and the w, h is: " << w << " " << h;
-        }
         // find the corresponding locations for every bottom
         for (int b = 1; b < bottom.size(); ++b) {
             const Dtype* bottom_data = bottom[b]->cpu_data();
@@ -250,7 +259,7 @@ void HyperColumnsLayer<Dtype>::Backward_cpu(const vector<Blob<Dtype>*>& top,
     Dtype tempw, temph;
     Dtype delta_w, delta_h;
     int top_index = 0;
-    for (int i = 0; i < N_ * sample_num_; ++i) {
+    for (int i = 0; i < selected_points_.size(); ++i) {
         index = selected_points_[i];
         n = i / sample_num_;
         h = index / W_;
