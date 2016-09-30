@@ -132,7 +132,9 @@ void HyperColumnsLayer<Dtype>::Reshape(const vector<Blob<Dtype>*>& bottom,
     top_shape.push_back(1);
     top[0]->Reshape(top_shape);
     // top[1]
-    top_shape[1] = K_;
+    top_shape.clear();
+    top_shape.push_back(sample_num_ * N_);
+    top_shape.push_back(K_);
     top[1]->Reshape(top_shape);
 }
 
