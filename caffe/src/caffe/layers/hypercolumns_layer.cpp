@@ -8,6 +8,8 @@
 #include <map>
 #include <cmath>
 #include <algorithm>
+#include <ctime>
+#include <cstdlib>
 
 #include "caffe/layers/hypercolumns_layer.hpp"
 #include "caffe/util/math_functions.hpp"
@@ -37,7 +39,7 @@ void HyperColumnsLayer<Dtype>::generate_list(const Blob<Dtype>* feature_map) {
         }
         // the sample seed
         const Dtype* feature_data = feature_map->cpu_data();// for cpp
-        std::srand(unsigned(std::time(0));
+        std::srand(unsigned(std::time(0)));
         for (int i = 0; i < N_; ++i) {
             std::random_shuffle(holds.begin(), holds.end());
             int count = 0;

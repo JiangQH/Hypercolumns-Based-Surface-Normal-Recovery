@@ -119,6 +119,7 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
 
 
     Dtype* top_normal = top[1]->mutable_gpu_data();
+    caffe_gpu_set(top[1]->count(), Dtype(0.0), top_normal);
     const Dtype* bottom_normal = bottom[0]->gpu_data();
     const int count1 = top[1]->count();
     ForwardNormal<Dtype><<<CAFFE_GET_BLOCKS(count1), CAFFE_CUDA_NUM_THREADS>>>(
@@ -130,6 +131,7 @@ void HyperColumnsLayer<Dtype>::Forward_gpu(const vector<Blob<Dtype>*>& bottom,
 
     // then forward the hypercolumns
     Dtype* top_hypercolumns = top[0]->mutable_gpu_data();
+    caffe_gpu_set(top[0]->count(), Dtype(0.0), top_hypercolumns);
     const int bottom_count = bottom.size();
     /**
     vector<const Dtype*> bottom_datas;
@@ -257,6 +259,9 @@ void HyperColumnsLayer<Dtype>::Backward_gpu(const vector<Blob<Dtype>*>& top,
         bottom_diffs.push_back(bottom[i]->mutable_gpu_diff());
     }
     **/
+    for (int i = 1; i < bottom.size(); ++i) {
+        caffe_gpu_set(bottom[i]->count(), Dtype(0.0), bottom[i]->mutable_gpu_diff());
+    }
     const int bottom_count = bottom.size();
     const int nthreads = top[0]->count();
     BackwardHypercolumns<Dtype><<<CAFFE_GET_BLOCKS(nthreads), CAFFE_CUDA_NUM_THREADS>>>(
