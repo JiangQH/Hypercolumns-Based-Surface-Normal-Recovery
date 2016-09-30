@@ -1,0 +1,40 @@
+``1) Should the feature be normalized before they are concatenated? since the value of them (like conv1_2 and conv-7) differs much
+
+The non-linear multi-layer perceptron automatically normalize the features from different layers.
+
+ 
+2) Should the parameters in deconv being learned too ? Will all layers in vgg-16 be fine-tuned or just the construction conv(eg.conv1_2..)
+
+
+A simple bilinear interpolation works well. In our recent version (see http://www.cs.cmu.edu/~aayushb/marrRevisited/), we no more use deconv layer. 
+
+All layers are fine-tuned.
+
+ 
+3) What are the initial parameters of the regression network?
+
+Standard parameters.
+
+ 
+4) The lr_mult and decay_mult of each layer in the network?
+
+Standard used in the VGG-16 network.
+
+
+ 
+5) The parameters in solver file(momentum, iter_size, average_loss)?
+
+
+iter_size = 50K
+rest all parameters are same.
+
+
+note: the Standard used almost in every network is that lr_mult: 1, 1. decay_mult: 2, 0
+      in the newly fc layer, xavier is may be better? constant is set to zero.
+
+
+http://blog.christianperone.com/2016/01/convolutional-hypercolumns-in-python/
+
+bilinear interpolation: 可以直接做计算on the fly. 根据目标点的坐标，计算出对应的权重结果。这个权重是可以根据两个大小来做计算的。在做bp的时候，对每一个点都进行权重计算，然后将其对应的diff按比例返还回去即可。
+
+目前还有个问题是全连接层那个是直接累加和么？
