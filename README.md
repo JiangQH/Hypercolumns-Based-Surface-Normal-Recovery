@@ -1,4 +1,4 @@
-<center># Monocular surface normal recovery project</center>
+# Monocular surface normal recovery project
 --------
 ## Introduction
 
