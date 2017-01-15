@@ -342,7 +342,7 @@ layer {
     name: "hypercolumns"
     type: "HyperColumns"
     hypercolumns_param {
-	is_train: false
+      	is_train: false
         skip_ratio:1
     }
 }
